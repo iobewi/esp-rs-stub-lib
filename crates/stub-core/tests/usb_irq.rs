@@ -240,7 +240,9 @@ fn an_ambiguous_rom_read_latches_failure_without_retry() {
             &mut pump,
             &mut frames
         ),
-        Err(ServiceError::Rx(stub_core::usb_rx::RxPumpError::Source(RxFailure::Indeterminate(-1))))
+        Err(ServiceError::Rx(stub_core::usb_rx::RxPumpError::Source(
+            RxFailure::Indeterminate(-1)
+        )))
     );
     assert!(coordinator.requires_resync());
     assert_eq!(
