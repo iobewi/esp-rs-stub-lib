@@ -62,3 +62,10 @@ foreground `service_once()` unmasks RX when the receiver is empty,
 armed and has no pending link change; otherwise the first IRQ could
 never occur. A notification racing with unmask is retained, and an
 observed link-change event prevents ROM FIFO access.
+
+RV32IMC has no atomic read-modify-write operation for the event flag.
+The foreground acknowledges RX notifications by atomic load/store **only
+after** the platform synchronously masks and quiesces the CDC RX
+callback. Attempting to clear a pending flag while the ISR can write it
+would lose wakeups. The portable code is not proof that the platform's
+mask operation has those exclusion semantics.

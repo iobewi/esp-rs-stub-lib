@@ -52,8 +52,14 @@ impl RxIrqSignal {
         self.link_changed.load(Ordering::Acquire)
     }
 
-    fn take_pending(&self) -> bool {
-        self.pending.swap(false, Ordering::AcqRel)
+    /// Only the foreground owner may clear this flag, and only AFTER
+    /// synchronously masking/quiescing the RX interrupt. RV32IMC has no
+    /// atomic read-modify-write instruction; a blind load/store while
+    /// an ISR can publish would otherwise lose notifications.
+    fn take_pending_masked(&self) -> bool {
+        let pending = self.pending.load(Ordering::Acquire);
+        self.pending.store(false, Ordering::Release);
+        pending
     }
 
     /// An explicit externally synchronized reset may clear these flags.
@@ -160,10 +166,12 @@ impl RxIrqCoordinator {
 
         // No notification is needed to drain a previously accepted ROM
         // batch after DoubleBuffer::poll() has rearmed a spare frame slot.
-        if signal.take_pending() {
-            self.draining = true;
-        }
-        if !self.draining && pump.pending() == 0 {
+        // A pending notification is acknowledged only under a synchronous
+        // mask: RV32IMC cannot use AtomicBool::swap.
+        if !self.draining
+            && pump.pending() == 0
+            && !signal.pending.load(Ordering::Acquire)
+        {
             // Bootstrap: startup requires RX masked until the callback and
             // session are installed, but the first foreground iteration
             // must arm an idle, empty receiver to receive the first IRQ.
@@ -180,6 +188,9 @@ impl RxIrqCoordinator {
         }
 
         self.mask(mask);
+        if signal.take_pending_masked() {
+            self.draining = true;
+        }
         // A line event may have arrived before the synchronous mask
         // completed; never read from a session with pending line changes.
         if signal.link_change_pending() {
