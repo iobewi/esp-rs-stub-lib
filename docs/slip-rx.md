@@ -3,11 +3,16 @@
 The `stub-core` crate provides:
 
 - `slip::SlipDecoder`: deterministic byte-oriented SLIP decoder; nonempty
-  frames only, malformed escapes rejected, no implicit start delimiter. After\n  `C0 C0`, the state returns to `NoFrame`; subsequent data is ignored\n  until the next `C0`.
+  frames only, malformed escapes rejected, no implicit start delimiter. After
+  `C0 C0`, the state returns to `NoFrame`; subsequent data is ignored
+  until the next `C0`.
 - `slip::send_frame`: encoder with fallible `TxSink` and explicit flush.
   Unlike the C byte-transmit callback, write errors are propagated.
 - `rx::DoubleBuffer<N>`: two fixed-size inline slots, `poll`,
-  `frame`, and idempotent `release_selected`. The selection is stable\n  across consecutive `poll()` calls only if no intervening RX/release\n  changes the slot states. Newly received errors have priority; release\n  always acts on the latest poll selection.
+  `frame`, and idempotent `release_selected`. The selection is stable
+  across consecutive `poll()` calls only if no intervening RX/release
+  changes the slot states. Newly received errors have priority; release
+  always acts on the latest poll selection.
 
 The reference is Espressif `esp-flasher-stub/src/slip.c`,
 `frame_buffer.c`, and `transport.c`. Frame capacity is 16,647 bytes.
