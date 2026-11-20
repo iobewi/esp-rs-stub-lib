@@ -15,6 +15,11 @@ name = "p4-rom-link-smoke"
 path = "src/bin/p4-rom-link-smoke.rs"
 test = false
 bench = false
+required-features = ["rom-link-smoke"]
+
+[features]
+# Opt-in only: this ELF may call ROM before a USB session is validated.
+rom-link-smoke = []
 
 [dependencies]
 stub-core = { path = "../../crates/stub-core" }

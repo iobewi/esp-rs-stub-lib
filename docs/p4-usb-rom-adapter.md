@@ -79,7 +79,13 @@ deployment is authorized by this PR.
 
 ## Independent ABI link verification
 
-The separate `p4-rom-link-smoke` test executable is built for RV32IMC using
+The separate `p4-rom-link-smoke` test executable is **opt-in**, guarded by
+`required-features = ["rom-link-smoke"]`. Normal `cargo p4-build` builds
+only `p4-foundation`; the CI checks that no smoke executable exists after
+that default build. Only the dedicated CI step uses
+`cargo build --release --target riscv32imc-unknown-none-elf -p p4-foundation --features rom-link-smoke --bin p4-rom-link-smoke`.
+
+The test executable is built for RV32IMC using
 the same `p4-memory.x` and `p4-rom.x` as the real foundation. It contains
 an intentionally unsafe and **never executed** path that constructs
 `P4RomCdcTx` and calls `FifoFill::fill`. This forces both the volatile
