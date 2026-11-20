@@ -70,8 +70,8 @@ impl SlipDecoder {
                         self.has_data = false;
                         DecodeEvent::Complete
                     } else {
-                        // Empty C0 C0 gap: keep receiving, as in Espressif C.
-                        self.state = DecodeState::InFrame;
+                        // Espressif C returns to NO_FRAME on an empty frame.
+                        // Following non-delimiter bytes are not frame data.
                         DecodeEvent::None
                     }
                 }

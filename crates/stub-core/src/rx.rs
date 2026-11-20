@@ -88,7 +88,10 @@ impl<const N: usize> DoubleBuffer<N> {
 
     /// Select the pending processing frame (errors take priority, then
     /// the other slot), and rearm a spare RX slot if one is available.
-    /// Calling poll twice without release is permitted and stable.
+    /// Repeated polling is stable only while no receive/release operation
+    /// changes the pending slots. A new RX error can take priority over a
+    /// previously selected complete frame; each call updates the selected
+    /// slot, so release_selected() affects the *most recent* selection.
     pub fn poll(&mut self) -> Poll {
         let other = 1 - self.rx;
         let selected = if self.slots[other] == SlotState::Error {

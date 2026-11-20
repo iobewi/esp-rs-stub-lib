@@ -76,9 +76,42 @@ fn decode_waits_for_delimiter_and_ignores_empty_gap() {
     assert_eq!(decoder.push(0x12, true), DecodeEvent::None);
     assert_eq!(decoder.push(SLIP_END, true), DecodeEvent::None);
     assert_eq!(decoder.push(SLIP_END, true), DecodeEvent::None);
+    assert_eq!(decoder.state(), DecodeState::NoFrame);
+    assert_eq!(decoder.push(0x23, true), DecodeEvent::None);
+    assert_eq!(decoder.push(SLIP_END, true), DecodeEvent::None);
     assert_eq!(decoder.state(), DecodeState::InFrame);
-    assert_eq!(decoder.push(0x23, true), DecodeEvent::Byte(0x23));
+    assert_eq!(decoder.push(0x42, true), DecodeEvent::Byte(0x42));
     assert_eq!(decoder.push(SLIP_END, true), DecodeEvent::Complete);
+    assert_eq!(decoder.state(), DecodeState::NoFrame);
+}
+
+#[test]
+fn empty_frame_followed_by_out_of_frame_data_is_ignored() {
+    let mut rx = DoubleBuffer::<4>::new();
+    // C0 C0 23 C0: no completed frame, final C0 opens the next one.
+    feed(&mut rx, &[SLIP_END, SLIP_END, 0x23, SLIP_END]);
+    assert_eq!(rx.poll(), Poll::Idle);
+    // 42 C0 completes the frame started by the prior C0.
+    feed(&mut rx, &[0x42, SLIP_END]);
+    assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
+    assert_eq!(rx.frame(0), Some(&[0x42][..]));
+}
+
+#[test]
+fn rx_error_can_supersede_selected_frame_without_losing_it() {
+    let mut rx = DoubleBuffer::<4>::new();
+    feed(&mut rx, &[SLIP_END, 0x11, SLIP_END]);
+    assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
+    assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
+    // A newly received bad escape takes priority at the next poll.
+    feed(&mut rx, &[SLIP_END, SLIP_ESC, 0xaa]);
+    assert_eq!(rx.poll(), Poll::Error { index: 1 });
+    rx.release_selected();
+    assert_eq!(rx.slot_state(1), Some(SlotState::Empty));
+    assert_eq!(rx.frame(0), Some(&[0x11][..]));
+    assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
+    rx.release_selected();
+    assert_eq!(rx.slot_state(0), Some(SlotState::Empty));
 }
 
 #[test]

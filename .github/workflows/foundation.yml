@@ -18,6 +18,8 @@ jobs:
           components: llvm-tools-preview
       - name: Rust host library tests
         run: cargo test --workspace --exclude p4-foundation
+      - name: Cross-check portable core for RV32IMC (no_std)
+        run: cargo check --release --target riscv32imc-unknown-none-elf -p stub-core
       - name: Cross-compile P4 RAM foundation
         run: cargo build --release --target riscv32imc-unknown-none-elf -p p4-foundation
       - name: Validate ELF and export stub JSON
