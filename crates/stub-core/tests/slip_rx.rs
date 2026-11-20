@@ -145,10 +145,13 @@ fn both_slots_busy_discard_unarmed_input() {
     feed(&mut rx, &[SLIP_END, 99, SLIP_END]);
     assert_eq!(rx.frame(1), Some(&[2][..]));
     rx.release_selected();
-    // The next poll must allow the formerly active RX slot to rearm.
-    assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
-    rx.release_selected();
+    // The pending slot 1 is returned; freed slot 0 becomes the RX slot.
+    assert_eq!(rx.poll(), Poll::Ready { index: 1, len: 1 });
+    assert_eq!(rx.rx_index(), 0);
     assert!(rx.is_armed());
+    rx.release_selected();
+    feed(&mut rx, &[SLIP_END, 3, SLIP_END]);
+    assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
 }
 
 #[test]
