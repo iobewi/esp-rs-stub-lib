@@ -4,6 +4,7 @@
 //! Hardware access and protocol implementation belong in later PRs.
 
 pub mod rx;
+pub mod usb_rx;
 pub mod slip;
 pub mod tx;
 
