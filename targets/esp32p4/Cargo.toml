@@ -17,7 +17,15 @@ test = false
 bench = false
 required-features = ["rom-link-smoke"]
 
+[[bin]]
+name = "p4-usb-bringup"
+path = "src/bin/p4-usb-bringup.rs"
+test = false
+bench = false
+required-features = ["usb-bringup"]
+
 [features]
+usb-bringup = []
 # Opt-in only: this ELF may call ROM before a USB session is validated.
 rom-link-smoke = []
 

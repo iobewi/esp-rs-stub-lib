@@ -43,3 +43,18 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+## Espressif — esp-stub-lib
+
+The P4 USB-OTG attach sequence and ROM download channel check in
+`targets/esp32p4/src/bin/p4-usb-bringup.rs` are adapted from:
+
+- https://github.com/espressif/esp-stub-lib/blob/master/src/target/esp32p4/src/usb_otg.c
+- https://github.com/espressif/esp-stub-lib/blob/master/src/usb_otg.c
+
+Both source files carry `SPDX-FileCopyrightText: 2025-2026 Espressif Systems
+(Shanghai) CO LTD` and `SPDX-License-Identifier: Apache-2.0 OR MIT`.
+This adaptation uses the MIT option. The text of esp-stub-lib's
+[LICENSE-MIT](https://github.com/espressif/esp-stub-lib/blob/master/LICENSE-MIT)
+is identical to the Espressif copyright and permission notice above.
