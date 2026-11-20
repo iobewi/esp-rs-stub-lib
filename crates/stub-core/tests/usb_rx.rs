@@ -85,6 +85,7 @@ fn indeterminate_read_poison_prevents_further_reads_and_replay() {
     assert_eq!(sim.calls, 1);
     // An external transport reset must first discard residual FIFO bytes.
     sim.pos = sim.bytes.len();
+    sim.override_result = None;
     rx.reset_after_resync();
     pump.reset_after_resync();
     assert_eq!(pump.pump_once(&mut sim, &mut rx), Ok(RxPumpResult::Empty));
