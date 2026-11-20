@@ -49,6 +49,7 @@ def check_elf(elf_path: Path, disassembly: str) -> None:
         if re.search(r"<esp_rom_cdc_acm_fifo_fill(?:[+-]0x[0-9a-f]+)?>", line)
     ]
     if not pointer_refs or not fifo_refs:
+        print("DEBUG smoke ELF disassembly:\n" + disassembly)
         raise AssertionError("Both ROM symbols must appear in code disassembly")
     if not any(
         re.search(r"\blw\b", "\n".join(lines[max(0, i - 3): i + 4]))

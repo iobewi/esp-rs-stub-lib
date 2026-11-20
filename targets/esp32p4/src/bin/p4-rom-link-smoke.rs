@@ -51,7 +51,7 @@ pub extern "C" fn rust_entry() -> ! {
     if let Some(mut tx) = unsafe { P4RomCdcTx::from_active_rom_session() } {
         let bytes = core::hint::black_box(&[0xC0, 0x42, 0xC0]);
         let result = tx.fill(bytes);
-        core::hint::black_box(result);
+        let _ = core::hint::black_box(result);
     }
     loop {
         core::hint::spin_loop();
