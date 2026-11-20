@@ -1,0 +1,22 @@
+name: Miri (portable Rust)
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  miri:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - name: Verify Cargo argument builder (compound subcommands)
+        run: python -m unittest discover -s tests -p 'test_cargo_args.py' -v
+      - name: Setup Miri for host target
+        run: cargo +nightly miri setup
+      - name: Miri — portable Rust crates only
+        run: python -m tools.cargo_args
