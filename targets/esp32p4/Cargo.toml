@@ -10,5 +10,12 @@ path = "src/main.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "p4-rom-link-smoke"
+path = "src/bin/p4-rom-link-smoke.rs"
+test = false
+bench = false
+
 [dependencies]
+stub-core = { path = "../../crates/stub-core" }
 stub-rom = { path = "../../crates/stub-rom" }

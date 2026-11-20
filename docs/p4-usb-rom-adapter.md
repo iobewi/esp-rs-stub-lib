@@ -76,3 +76,20 @@ RX activity, final payload hash and MiB/s under matched conditions.
 Any IDLab hardware recipe must be read-only and require explicit target
 and session authorization. No flash erase/write or unsupervised firmware
 deployment is authorized by this PR.
+
+## Independent ABI link verification
+
+The separate `p4-rom-link-smoke` test executable is built for RV32IMC using
+the same `p4-memory.x` and `p4-rom.x` as the real foundation. It contains
+an intentionally unsafe and **never executed** path that constructs
+`P4RomCdcTx` and calls `FifoFill::fill`. This forces both the volatile
+ROM data-pointer read and the actual ROM FIFO function call into the linked
+ELF. The CI checks their exact symbol addresses and verifies the load/call
+instructions in the disassembly. The ELF and disassembly are archived.
+
+This smoke ELF must **never** be distributed as the firmware or passed to
+IDLab for loading; its entry point presumes a valid ROM USB session.
+
+The original `p4-foundation` executable remains non-operational and does
+not call the ROM USB functions. This check validates only link-time ABI
+resolution, not ECO7 execution, ROM FIFO semantics or hardware performance.
