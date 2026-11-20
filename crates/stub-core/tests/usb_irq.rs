@@ -1,6 +1,6 @@
 use stub_core::rx::{DoubleBuffer, Poll};
 use stub_core::usb_irq::{RxIrqCoordinator, RxIrqMask, RxIrqSignal, ServiceError, ServiceResult};
-use stub_core::usb_rx::{RxFailure, RxPump, RxSource};
+use stub_core::usb_rx::{RxFailure, RxPump, RxRead, RxSource};
 
 #[derive(Default)]
 struct FakeMask {
@@ -40,7 +40,7 @@ impl Fifo {
 }
 
 impl RxSource for Fifo {
-    fn read(&mut self, into: &mut [u8]) -> Result<usize, RxFailure> {
+    fn read(&mut self, into: &mut [u8]) -> Result<RxRead, RxFailure> {
         self.calls += 1;
         if self.failed {
             return Err(RxFailure::Indeterminate(-1));
@@ -48,7 +48,11 @@ impl RxSource for Fifo {
         let n = into.len().min(self.bytes.len() - self.cursor);
         into[..n].copy_from_slice(&self.bytes[self.cursor..self.cursor + n]);
         self.cursor += n;
-        Ok(n)
+        if n == 0 {
+            Ok(RxRead::Empty)
+        } else {
+            Ok(RxRead::Data(n))
+        }
     }
 }
 
@@ -357,4 +361,139 @@ fn interrupt_racing_with_first_unmask_is_not_lost() {
     assert_eq!(frames.frame(0), Some(&[0x42][..]));
     assert!(hw.masked);
     assert_eq!(hw.unmasks, 1);
+}
+
+#[test]
+fn zero_progress_does_not_unmask_and_data_can_resume_without_new_irq() {
+    struct Stalled<'a> {
+        bytes: &'a [u8],
+        stall: bool,
+        calls: usize,
+    }
+    impl RxSource for Stalled<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> Result<RxRead, RxFailure> {
+            self.calls += 1;
+            if self.stall {
+                return Ok(RxRead::NoProgress);
+            }
+            if self.bytes.is_empty() {
+                return Ok(RxRead::Empty);
+            }
+            let n = self.bytes.len().min(buf.len());
+            buf[..n].copy_from_slice(&self.bytes[..n]);
+            self.bytes = &self.bytes[n..];
+            Ok(RxRead::Data(n))
+        }
+    }
+    let irq = RxIrqSignal::new();
+    irq.notify_rx_masked();
+    let mut hw = FakeMask {
+        masked: true,
+        ..Default::default()
+    };
+    let mut coordinator = RxIrqCoordinator::new();
+    let mut pump = RxPump::new();
+    let mut frames = DoubleBuffer::<8>::new();
+    let mut source = Stalled {
+        bytes: &[0xC0, 0x55, 0xC0],
+        stall: true,
+        calls: 0,
+    };
+    assert_eq!(
+        coordinator.service_once(&irq, &mut hw, &mut source, &mut pump, &mut frames),
+        Ok(ServiceResult::NoProgress)
+    );
+    assert!(hw.masked);
+    assert_eq!(hw.unmasks, 0);
+    assert_eq!(source.calls, 1);
+
+    // No new interrupt. Foreground must continue polling the stalled FIFO.
+    source.stall = false;
+    assert_eq!(
+        coordinator.service_once(&irq, &mut hw, &mut source, &mut pump, &mut frames),
+        Ok(ServiceResult::Progress { received: 3 })
+    );
+    assert_eq!(frames.poll(), Poll::Ready { index: 0, len: 1 });
+    assert_eq!(frames.frame(0), Some(&[0x55][..]));
+    assert!(hw.masked);
+    assert_eq!(hw.unmasks, 0);
+    assert_eq!(source.calls, 2);
+
+    assert_eq!(
+        coordinator.service_once(&irq, &mut hw, &mut source, &mut pump, &mut frames),
+        Ok(ServiceResult::Drained)
+    );
+    assert!(!hw.masked);
+    assert_eq!(hw.unmasks, 1);
+}
+
+#[test]
+fn benign_line_change_ack_preserves_completed_frame_and_pending_rx() {
+    let irq = RxIrqSignal::new();
+    let mut hw = FakeMask {
+        masked: true,
+        ..Default::default()
+    };
+    let mut coordinator = RxIrqCoordinator::new();
+    let mut pump = RxPump::new();
+    let mut frames = DoubleBuffer::<8>::new();
+    let mut fifo = Fifo::new(&[0xC0, 0x11, 0xC0, 0xC0, 0x22, 0xC0]);
+    irq.notify_rx_masked();
+    assert_eq!(
+        coordinator.service_once(&irq, &mut hw, &mut fifo, &mut pump, &mut frames),
+        Ok(ServiceResult::Progress { received: 6 })
+    );
+    assert_eq!(pump.pending(), 3);
+    assert_eq!(frames.frame(0), Some(&[0x11][..]));
+    irq.notify_line_state_changed();
+    assert_eq!(
+        coordinator.service_once(&irq, &mut hw, &mut fifo, &mut pump, &mut frames),
+        Ok(ServiceResult::LinkChange)
+    );
+    let reads = fifo.calls;
+    // Foreground has checked RTS and confirmed no reset is necessary.
+    coordinator.acknowledge_benign_line_change(&irq, &mut hw);
+    assert!(!irq.link_change_pending());
+    assert_eq!(pump.pending(), 3);
+    assert_eq!(frames.frame(0), Some(&[0x11][..]));
+    assert_eq!(fifo.calls, reads);
+    assert!(hw.masked);
+    assert_eq!(hw.unmasks, 0);
+
+    assert_eq!(frames.poll(), Poll::Ready { index: 0, len: 1 });
+    assert_eq!(
+        coordinator.service_once(&irq, &mut hw, &mut fifo, &mut pump, &mut frames),
+        Ok(ServiceResult::Progress { received: 0 })
+    );
+    assert_eq!(fifo.calls, reads);
+    assert_eq!(frames.frame(0), Some(&[0x11][..]));
+    frames.release_selected();
+    assert_eq!(frames.poll(), Poll::Ready { index: 1, len: 1 });
+    assert_eq!(frames.frame(1), Some(&[0x22][..]));
+}
+
+#[test]
+fn benign_line_change_ack_keeps_undrained_fifo_work() {
+    let irq = RxIrqSignal::new();
+    let mut hw = FakeMask {
+        masked: true,
+        ..Default::default()
+    };
+    let mut coordinator = RxIrqCoordinator::new();
+    let mut pump = RxPump::new();
+    let mut frames = DoubleBuffer::<8>::new();
+    let mut fifo = Fifo::new(&[0xC0, 0x77, 0xC0]);
+    irq.notify_rx_masked();
+    irq.notify_line_state_changed();
+    assert_eq!(
+        coordinator.service_once(&irq, &mut hw, &mut fifo, &mut pump, &mut frames),
+        Ok(ServiceResult::LinkChange)
+    );
+    coordinator.acknowledge_benign_line_change(&irq, &mut hw);
+    assert_eq!(
+        coordinator.service_once(&irq, &mut hw, &mut fifo, &mut pump, &mut frames),
+        Ok(ServiceResult::Progress { received: 3 })
+    );
+    assert_eq!(frames.poll(), Poll::Ready { index: 0, len: 1 });
+    assert_eq!(frames.frame(0), Some(&[0x77][..]));
 }

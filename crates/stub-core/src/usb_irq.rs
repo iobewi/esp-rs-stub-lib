@@ -62,6 +62,12 @@ impl RxIrqSignal {
         pending
     }
 
+    /// The caller has synchronously quiesced *all* CDC callbacks including
+    /// line-state callbacks, not merely RX. Only foreground may clear this.
+    fn acknowledge_line_change_masked(&self) {
+        self.link_changed.store(false, Ordering::Release);
+    }
+
     /// An explicit externally synchronized reset may clear these flags.
     /// Exclusive access prevents safe Rust producers from signalling during
     /// reset; hardware integration must additionally mask and quiesce ISR.
@@ -87,9 +93,12 @@ pub enum ServiceResult {
     Paused { pending: usize },
     /// One bounded ROM source read, or a drain of cached batch data.
     Progress { received: usize },
-    /// FIFO drained, ROM RX may now be re-enabled.
+    /// A ROM read reported no progress despite positive FIFO occupancy.
+    /// RX remains masked and the foreground must try again or time out.
+    NoProgress,
+    /// FIFO confirmed empty, ROM RX may now be re-enabled.
     Drained,
-    /// Link-state event requires foreground inspection/resynchronization.
+    /// Link-state event requires foreground inspection; not necessarily reset.
     LinkChange,
 }
 
@@ -136,6 +145,23 @@ impl RxIrqCoordinator {
         // before touching the FIFO, even if our cached state says masked.
         mask.mask_rx();
         self.masked = true;
+    }
+
+    /// Acknowledge a benign line-state notification *without* clearing
+    /// received data, the SLIP decoder, pending RX or FIFO drain state.
+    ///
+    /// The caller must FIRST inspect ROM CDC line state and independently
+    /// establish that no reset/detach/session change is required. The mask
+    /// implementation must synchronously quiesce ALL CDC callbacks (including
+    /// line-state callbacks) before this atomic clear; masking RX alone is
+    /// insufficient. Otherwise a concurrent line event could be lost.
+    pub fn acknowledge_benign_line_change<M: RxIrqMask>(
+        &mut self,
+        signal: &RxIrqSignal,
+        mask: &mut M,
+    ) {
+        self.mask(mask);
+        signal.acknowledge_line_change_masked();
     }
 
     /// One bounded foreground step. It never calls a FIFO reader if RX is
@@ -201,6 +227,7 @@ impl RxIrqCoordinator {
 
         match outcome {
             RxPumpResult::Paused { pending } => Ok(ServiceResult::Paused { pending }),
+            RxPumpResult::NoProgress => Ok(ServiceResult::NoProgress),
             RxPumpResult::Progress { received } => {
                 // Even if a complete frame disarmed RX, keep masked until a
                 // spare slot is rearmed and all buffered data is consumed.

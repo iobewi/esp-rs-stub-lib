@@ -69,3 +69,23 @@ after** the platform synchronously masks and quiesces the CDC RX
 callback. Attempting to clear a pending flag while the ISR can write it
 would lose wakeups. The portable code is not proof that the platform's
 mask operation has those exclusion semantics.
+
+## Review corrections: zero-progress reads and benign line changes
+
+`RxSource::read` now reports `RxRead::Empty` only when FIFO occupancy
+was measured as zero. A read returning zero bytes after positive occupancy
+reports `RxRead::NoProgress`. The coordinator retains its draining state,
+keeps interrupts masked, and retries via subsequent foreground iterations
+without relying on another interrupt. The caller must bound prolonged
+no-progress periods with a policy above this layer; no automatic reset or
+infinite blocking loop is introduced.
+
+A benign CDC line-state notification is acknowledged separately through
+`RxIrqCoordinator::acknowledge_benign_line_change`. This requires
+foreground validation of RTS/line state and a mask implementation that
+synchronously quiesces **all** CDC callbacks, including line-state callbacks.
+The method clears only the line-state notification, preserving buffered
+SLIP frames, RX pending notifications, the pump remainder and its draining
+state. A real USB reset, detach or invalid session still requires external
+transport recovery followed by `reset_after_resync` with its deliberate
+FIFO and software-buffer purge.

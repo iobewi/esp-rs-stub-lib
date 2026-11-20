@@ -1,12 +1,12 @@
 use stub_core::rx::{DoubleBuffer, Poll, SlotState};
-use stub_core::usb_rx::{RxFailure, RxPump, RxPumpError, RxPumpResult, RxSource, RX_BURST};
+use stub_core::usb_rx::{RxFailure, RxPump, RxPumpError, RxPumpResult, RxRead, RxSource, RX_BURST};
 
 struct SimRx {
     bytes: Vec<u8>,
     pos: usize,
     max_accept: usize,
     calls: usize,
-    override_result: Option<Result<usize, RxFailure>>,
+    override_result: Option<Result<RxRead, RxFailure>>,
     consumed_on_override: usize,
 }
 
@@ -24,7 +24,7 @@ impl SimRx {
 }
 
 impl RxSource for SimRx {
-    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, RxFailure> {
+    fn read(&mut self, buffer: &mut [u8]) -> Result<RxRead, RxFailure> {
         self.calls += 1;
         if let Some(result) = self.override_result {
             self.pos += self.consumed_on_override.min(self.bytes.len() - self.pos);
@@ -36,7 +36,15 @@ impl RxSource for SimRx {
             .min(self.bytes.len() - self.pos);
         buffer[..count].copy_from_slice(&self.bytes[self.pos..self.pos + count]);
         self.pos += count;
-        Ok(count)
+        if count == 0 {
+            if self.pos == self.bytes.len() {
+                Ok(RxRead::Empty)
+            } else {
+                Ok(RxRead::NoProgress)
+            }
+        } else {
+            Ok(RxRead::Data(count))
+        }
     }
 }
 
@@ -104,7 +112,7 @@ fn indeterminate_read_poison_prevents_further_reads_and_replay() {
 #[test]
 fn impossible_read_count_is_poison_not_slice_overflow() {
     let mut sim = SimRx::new(&[0xC0, 0x12, 0xC0], 64);
-    sim.override_result = Some(Ok(RX_BURST + 1));
+    sim.override_result = Some(Ok(RxRead::Data(RX_BURST + 1)));
     let mut pump = RxPump::new();
     let mut rx = DoubleBuffer::<8>::new();
     assert_eq!(
@@ -216,4 +224,38 @@ fn resync_discards_pending_bytes_and_cannot_replay_them() {
     assert_eq!(pump.pending(), 0);
     assert_eq!(pump.pump_once(&mut sim, &mut rx), Ok(RxPumpResult::Empty));
     assert_eq!(rx.poll(), Poll::Idle);
+}
+
+#[test]
+fn positive_fifo_occupancy_with_zero_read_is_not_empty() {
+    let mut sim = SimRx::new(&[0xC0, 0x45, 0xC0], 64);
+    sim.override_result = Some(Ok(RxRead::NoProgress));
+    let mut pump = RxPump::new();
+    let mut rx = DoubleBuffer::<8>::new();
+    assert_eq!(pump.pump_once(&mut sim, &mut rx), Ok(RxPumpResult::NoProgress));
+    assert_eq!(sim.pos, 0);
+    assert_eq!(pump.pending(), 0);
+    sim.override_result = None;
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Ok(RxPumpResult::Progress { received: 3 })
+    );
+    assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
+    assert_eq!(rx.frame(0), Some(&[0x45][..]));
+}
+
+#[test]
+fn zero_data_count_is_rejected_not_mistaken_for_empty() {
+    let mut sim = SimRx::new(&[0xC0], 64);
+    sim.override_result = Some(Ok(RxRead::Data(0)));
+    let mut pump = RxPump::new();
+    let mut rx = DoubleBuffer::<8>::new();
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Err(RxPumpError::Source(RxFailure::InvalidCount {
+            offered: RX_BURST,
+            returned: 0
+        }))
+    );
+    assert!(pump.requires_resync());
 }
