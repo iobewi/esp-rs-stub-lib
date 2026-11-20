@@ -25,3 +25,8 @@ builder or create another Rust workspace package just to launch Miri.
 
 Nightly Miri is isolated in its own job and does not change the stable
 RV32IMC linker/toolchain configuration used for firmware builds.
+
+The literal `--` separator is rejected by `.subcommand()`,
+`.subcommand_arg()` and `.arg()`; only `.harness_arg()` may
+introduce arguments after the single builder-managed separator. A
+regression test covers that boundary and feature ordering.

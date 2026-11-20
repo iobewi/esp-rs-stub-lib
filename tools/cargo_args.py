@@ -20,7 +20,7 @@ class CargoArgsBuilder:
         self._harness_args: list[str] = []
 
     def subcommand(self, command: str) -> "CargoArgsBuilder":
-        if not command or any(c.isspace() for c in command):
+        if not command or command == "--" or any(c.isspace() for c in command):
             raise ValueError("subcommand must be one nonempty word")
         self._subcommand = [command]
         return self
@@ -28,7 +28,7 @@ class CargoArgsBuilder:
     def subcommand_arg(self, argument: str) -> "CargoArgsBuilder":
         if not self._subcommand:
             raise ValueError("subcommand() must be called first")
-        if not argument or any(c.isspace() for c in argument):
+        if not argument or argument == "--" or any(c.isspace() for c in argument):
             raise ValueError("subcommand argument must be one nonempty word")
         self._subcommand.append(argument)
         return self
@@ -38,6 +38,8 @@ class CargoArgsBuilder:
         return self
 
     def arg(self, argument: str) -> "CargoArgsBuilder":
+        if argument == "--":
+            raise ValueError("use harness_arg() for test-harness arguments")
         self._args.append(argument)
         return self
 

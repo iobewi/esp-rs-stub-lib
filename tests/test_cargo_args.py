@@ -67,6 +67,27 @@ class CargoArgsBuilderTests(unittest.TestCase):
             ["cargo", "miri", "test"],
         )
 
+    def test_separator_is_reserved_for_harness_args(self):
+        with self.assertRaises(ValueError):
+            CargoArgsBuilder().subcommand("--")
+        with self.assertRaises(ValueError):
+            CargoArgsBuilder().subcommand("miri").subcommand_arg("--")
+        with self.assertRaises(ValueError):
+            CargoArgsBuilder().subcommand("miri").subcommand_arg("test").arg("--")
+
+        command = (
+            CargoArgsBuilder()
+            .subcommand("miri")
+            .subcommand_arg("test")
+            .features(["feature-a"])
+            .harness_arg("--nocapture")
+            .build()
+        )
+        self.assertEqual(
+            command,
+            ["cargo", "miri", "test", "--features", "feature-a", "--", "--nocapture"],
+        )
+
     def test_argument_boundaries_cannot_be_ambiguous(self):
         with self.assertRaises(ValueError):
             CargoArgsBuilder().subcommand("miri test")
