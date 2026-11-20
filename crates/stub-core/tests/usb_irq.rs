@@ -66,7 +66,10 @@ fn step<const N: usize>(
 #[test]
 fn irq_never_touches_rx_buffers_and_rearms_only_after_drain() {
     let mut irq = RxIrqSignal::new();
-    let mut hw = FakeMask { masked: true, ..Default::default() };
+    let mut hw = FakeMask {
+        masked: true,
+        ..Default::default()
+    };
     let mut coordinator = RxIrqCoordinator::new();
     let mut pump = RxPump::new();
     let mut frames = DoubleBuffer::<8>::new();
@@ -76,17 +79,44 @@ fn irq_never_touches_rx_buffers_and_rearms_only_after_drain() {
     hw.mask_rx();
     irq.notify_rx_masked();
     assert_eq!(fifo.calls, 0);
-    assert_eq!(step(&mut coordinator, &irq, &mut hw, &mut fifo, &mut pump, &mut frames),
-        Ok(ServiceResult::Progress { received: 6 }));
+    assert_eq!(
+        step(
+            &mut coordinator,
+            &irq,
+            &mut hw,
+            &mut fifo,
+            &mut pump,
+            &mut frames
+        ),
+        Ok(ServiceResult::Progress { received: 6 })
+    );
     assert_eq!(pump.pending(), 3);
     assert!(hw.masked);
     assert_eq!(hw.unmasks, 0);
-    assert_eq!(step(&mut coordinator, &irq, &mut hw, &mut fifo, &mut pump, &mut frames),
-        Ok(ServiceResult::Paused { pending: 3 }));
+    assert_eq!(
+        step(
+            &mut coordinator,
+            &irq,
+            &mut hw,
+            &mut fifo,
+            &mut pump,
+            &mut frames
+        ),
+        Ok(ServiceResult::Paused { pending: 3 })
+    );
     assert_eq!(fifo.calls, 1);
     assert_eq!(frames.poll(), Poll::Ready { index: 0, len: 1 });
-    assert_eq!(step(&mut coordinator, &irq, &mut hw, &mut fifo, &mut pump, &mut frames),
-        Ok(ServiceResult::Progress { received: 0 }));
+    assert_eq!(
+        step(
+            &mut coordinator,
+            &irq,
+            &mut hw,
+            &mut fifo,
+            &mut pump,
+            &mut frames
+        ),
+        Ok(ServiceResult::Progress { received: 0 })
+    );
     assert_eq!(pump.pending(), 0);
     assert_eq!(fifo.calls, 1);
     assert_eq!(frames.poll(), Poll::Ready { index: 0, len: 1 });
@@ -100,8 +130,17 @@ fn irq_never_touches_rx_buffers_and_rearms_only_after_drain() {
     frames.release_selected();
     assert_eq!(frames.poll(), Poll::Idle);
     assert!(frames.is_armed());
-    assert_eq!(step(&mut coordinator, &irq, &mut hw, &mut fifo, &mut pump, &mut frames),
-        Ok(ServiceResult::Drained));
+    assert_eq!(
+        step(
+            &mut coordinator,
+            &irq,
+            &mut hw,
+            &mut fifo,
+            &mut pump,
+            &mut frames
+        ),
+        Ok(ServiceResult::Drained)
+    );
     assert!(!hw.masked);
     assert_eq!(hw.unmasks, 1);
     assert_eq!(fifo.calls, 2);
@@ -111,13 +150,25 @@ fn irq_never_touches_rx_buffers_and_rearms_only_after_drain() {
 #[test]
 fn no_notification_means_no_fifo_read() {
     let irq = RxIrqSignal::new();
-    let mut hw = FakeMask { masked: true, ..Default::default() };
+    let mut hw = FakeMask {
+        masked: true,
+        ..Default::default()
+    };
     let mut coordinator = RxIrqCoordinator::new();
     let mut pump = RxPump::new();
     let mut frames = DoubleBuffer::<8>::new();
     let mut fifo = Fifo::new(&[0xC0, 0x33, 0xC0]);
-    assert_eq!(step(&mut coordinator, &irq, &mut hw, &mut fifo, &mut pump, &mut frames),
-        Ok(ServiceResult::Idle));
+    assert_eq!(
+        step(
+            &mut coordinator,
+            &irq,
+            &mut hw,
+            &mut fifo,
+            &mut pump,
+            &mut frames
+        ),
+        Ok(ServiceResult::Idle)
+    );
     assert_eq!(fifo.calls, 0);
     // The first idle foreground pass arms RX; otherwise no first IRQ
     // could ever arrive after startup with hardware initially masked.
@@ -128,39 +179,81 @@ fn no_notification_means_no_fifo_read() {
 #[test]
 fn a_link_change_blocks_fifo_and_unmask_until_external_recovery() {
     let mut irq = RxIrqSignal::new();
-    let mut hw = FakeMask { masked: true, ..Default::default() };
+    let mut hw = FakeMask {
+        masked: true,
+        ..Default::default()
+    };
     let mut coordinator = RxIrqCoordinator::new();
     let mut pump = RxPump::new();
     let mut frames = DoubleBuffer::<8>::new();
     let mut fifo = Fifo::new(&[0xC0, 0x33, 0xC0]);
     irq.notify_line_state_changed();
     irq.notify_rx_masked();
-    assert_eq!(step(&mut coordinator, &irq, &mut hw, &mut fifo, &mut pump, &mut frames),
-        Ok(ServiceResult::LinkChange));
+    assert_eq!(
+        step(
+            &mut coordinator,
+            &irq,
+            &mut hw,
+            &mut fifo,
+            &mut pump,
+            &mut frames
+        ),
+        Ok(ServiceResult::LinkChange)
+    );
     assert_eq!(fifo.calls, 0);
     assert_eq!(hw.unmasks, 0);
     coordinator.reset_after_resync(&mut irq, &mut hw, &mut pump, &mut frames);
     assert!(!irq.link_change_pending());
-    assert_eq!(step(&mut coordinator, &irq, &mut hw, &mut fifo, &mut pump, &mut frames),
-        Ok(ServiceResult::Idle));
+    assert_eq!(
+        step(
+            &mut coordinator,
+            &irq,
+            &mut hw,
+            &mut fifo,
+            &mut pump,
+            &mut frames
+        ),
+        Ok(ServiceResult::Idle)
+    );
     assert_eq!(fifo.calls, 0);
 }
 
 #[test]
 fn an_ambiguous_rom_read_latches_failure_without_retry() {
     let irq = RxIrqSignal::new();
-    let mut hw = FakeMask { masked: true, ..Default::default() };
+    let mut hw = FakeMask {
+        masked: true,
+        ..Default::default()
+    };
     let mut coordinator = RxIrqCoordinator::new();
     let mut pump = RxPump::new();
     let mut frames = DoubleBuffer::<8>::new();
     let mut fifo = Fifo::new(&[0xC0, 0x33, 0xC0]);
     fifo.failed = true;
     irq.notify_rx_masked();
-    assert_eq!(step(&mut coordinator, &irq, &mut hw, &mut fifo, &mut pump, &mut frames),
-        Err(ServiceError::Rx(stub_core::usb_rx::RxPumpError::Source(RxFailure::Indeterminate(-1)))));
+    assert_eq!(
+        step(
+            &mut coordinator,
+            &irq,
+            &mut hw,
+            &mut fifo,
+            &mut pump,
+            &mut frames
+        ),
+        Err(ServiceError::Rx(stub_core::usb_rx::RxPumpError::Source(RxFailure::Indeterminate(-1))))
+    );
     assert!(coordinator.requires_resync());
-    assert_eq!(step(&mut coordinator, &irq, &mut hw, &mut fifo, &mut pump, &mut frames),
-        Err(ServiceError::ResyncRequired));
+    assert_eq!(
+        step(
+            &mut coordinator,
+            &irq,
+            &mut hw,
+            &mut fifo,
+            &mut pump,
+            &mut frames
+        ),
+        Err(ServiceError::ResyncRequired)
+    );
     assert_eq!(fifo.calls, 1);
     assert_eq!(hw.unmasks, 0);
 }
@@ -168,18 +261,39 @@ fn an_ambiguous_rom_read_latches_failure_without_retry() {
 #[test]
 fn repeated_notifications_coalesce_without_dropping_new_wakeup() {
     let irq = RxIrqSignal::new();
-    let mut hw = FakeMask { masked: true, ..Default::default() };
+    let mut hw = FakeMask {
+        masked: true,
+        ..Default::default()
+    };
     let mut coordinator = RxIrqCoordinator::new();
     let mut pump = RxPump::new();
     let mut frames = DoubleBuffer::<8>::new();
     let mut fifo = Fifo::new(&[]);
     irq.notify_rx_masked();
     irq.notify_rx_masked();
-    assert_eq!(step(&mut coordinator, &irq, &mut hw, &mut fifo, &mut pump, &mut frames),
-        Ok(ServiceResult::Drained));
+    assert_eq!(
+        step(
+            &mut coordinator,
+            &irq,
+            &mut hw,
+            &mut fifo,
+            &mut pump,
+            &mut frames
+        ),
+        Ok(ServiceResult::Drained)
+    );
     assert_eq!(fifo.calls, 1);
     irq.notify_rx_masked();
-    assert_eq!(step(&mut coordinator, &irq, &mut hw, &mut fifo, &mut pump, &mut frames),
-        Ok(ServiceResult::Drained));
+    assert_eq!(
+        step(
+            &mut coordinator,
+            &irq,
+            &mut hw,
+            &mut fifo,
+            &mut pump,
+            &mut frames
+        ),
+        Ok(ServiceResult::Drained)
+    );
     assert_eq!(fifo.calls, 2);
 }

@@ -168,19 +168,14 @@ impl RxIrqCoordinator {
         // batch after DoubleBuffer::poll() has rearmed a spare frame slot.
         // A pending notification is acknowledged only under a synchronous
         // mask: RV32IMC cannot use AtomicBool::swap.
-        if !self.draining
-            && pump.pending() == 0
-            && !signal.pending.load(Ordering::Acquire)
-        {
+        if !self.draining && pump.pending() == 0 && !signal.pending.load(Ordering::Acquire) {
             // Bootstrap: startup requires RX masked until the callback and
             // session are installed, but the first foreground iteration
             // must arm an idle, empty receiver to receive the first IRQ.
             if self.masked {
                 mask.unmask_rx();
                 self.masked = false;
-                if signal.pending.load(Ordering::Acquire)
-                    || signal.link_change_pending()
-                {
+                if signal.pending.load(Ordering::Acquire) || signal.link_change_pending() {
                     self.mask(mask);
                 }
             }
@@ -224,9 +219,7 @@ impl RxIrqCoordinator {
                 // A callback racing with unmask can mask RX and publish
                 // an event. Never clear an event after enabling; if it
                 // arrived already, mask again and drain next iteration.
-                if signal.pending.load(Ordering::Acquire)
-                    || signal.link_change_pending()
-                {
+                if signal.pending.load(Ordering::Acquire) || signal.link_change_pending() {
                     self.mask(mask);
                 }
                 Ok(ServiceResult::Drained)
