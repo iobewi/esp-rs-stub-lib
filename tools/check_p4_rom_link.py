@@ -15,6 +15,8 @@ from elftools.elf.elffile import ELFFile
 
 ROM_POINTER_SLOT = 0x4FFBFFD4
 ROM_FIFO_FILL = 0x4FC008D0
+ROM_RX_COUNT = 0x4FC008D4
+ROM_RX_READ = 0x4FC008D8
 
 INSTRUCTION = re.compile(
     r"^\s*([0-9a-fA-F]+):\s+([a-z][a-z0-9.]*)\s*(.*?)\s*$"
@@ -107,6 +109,8 @@ def check_elf(elf_path: Path, disassembly: str) -> None:
     for name, expected in (
         ("uart_acm_dev", ROM_POINTER_SLOT),
         ("esp_rom_cdc_acm_fifo_fill", ROM_FIFO_FILL),
+        ("esp_rom_cdc_acm_rx_fifo_cnt", ROM_RX_COUNT),
+        ("esp_rom_cdc_acm_fifo_read", ROM_RX_READ),
     ):
         actual = symbols.get(name)
         if actual != expected:
@@ -117,7 +121,11 @@ def check_elf(elf_path: Path, disassembly: str) -> None:
         raise AssertionError("Missing LUI/LW from ROM pointer slot 0x4ffbffd4")
     if not find_rom_call(disassembly):
         raise AssertionError("Missing call targeting ROM FIFO at 0x4fc008d0")
-    print("PASS: ROM pointer slot load 0x4ffbffd4; ROM FIFO call 0x4fc008d0")
+    if not find_rom_call(disassembly, ROM_RX_COUNT):
+        raise AssertionError("Missing call targeting ROM RX count at 0x4fc008d4")
+    if not find_rom_call(disassembly, ROM_RX_READ):
+        raise AssertionError("Missing call targeting ROM RX read at 0x4fc008d8")
+    print("PASS: ROM pointer 0x4ffbffd4, TX 0x4fc008d0, RX count 0x4fc008d4, RX read 0x4fc008d8")
 
 
 def main() -> None:

@@ -159,6 +159,18 @@ impl<const N: usize> DoubleBuffer<N> {
         }
     }
 
+    /// Clear all slots and decoder state after external transport/SLIP
+    /// resynchronization. Do not call while ISR or DMA owns the buffer.
+    /// The caller must also discard stale hardware FIFO contents first.
+    pub fn reset_after_resync(&mut self) {
+        self.slots = [SlotState::Empty; 2];
+        self.rx = 0;
+        self.selected = None;
+        self.armed = true;
+        self.len = 0;
+        self.decoder.reset();
+    }
+
     pub const fn is_armed(&self) -> bool {
         self.armed
     }

@@ -72,6 +72,51 @@ impl FifoFill for P4RomCdcTx {
     }
 }
 
+impl stub_core::usb_rx::RxSource for P4RomCdcTx {
+    /// Poll the ROM USB CDC RX FIFO without installing an ISR.
+    ///
+    /// Returns at most the caller's buffer length, with one FIFO read at
+    /// most. A nonpositive count performs no FIFO read (negative is poison).
+    /// This shares the same ROM session safety preconditions as TX.
+    fn read(&mut self, bytes: &mut [u8]) -> Result<usize, stub_core::usb_rx::RxFailure> {
+        use stub_core::usb_rx::RxFailure;
+        if bytes.is_empty() {
+            return Ok(0);
+        }
+        // SAFETY: the P4RomCdcTx constructor's session/exclusivity
+        // preconditions also cover RX FIFO calls on this ROM device.
+        let available = unsafe { crate::esp_rom_cdc_acm_rx_fifo_cnt(self.device.as_ptr()) };
+        if available < 0 {
+            return Err(RxFailure::Indeterminate(available));
+        }
+        if available == 0 {
+            return Ok(0);
+        }
+        let offered = core::cmp::min(bytes.len(), available as usize);
+        let offered = core::cmp::min(offered, i32::MAX as usize);
+        // SAFETY: exclusive, stable ROM device; caller gives a writable
+        // slice valid for the duration of this one ROM FIFO read.
+        let result = unsafe {
+            crate::esp_rom_cdc_acm_fifo_read(
+                self.device.as_ptr(),
+                bytes.as_mut_ptr(),
+                offered as i32,
+            )
+        };
+        if result < 0 {
+            return Err(RxFailure::Indeterminate(result));
+        }
+        let received = result as usize;
+        if received > offered {
+            return Err(RxFailure::InvalidCount {
+                offered,
+                returned: received,
+            });
+        }
+        Ok(received)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
