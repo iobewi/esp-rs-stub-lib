@@ -38,8 +38,16 @@ fn encode_escaped_bytes_and_flush() {
     send_frame(&[0x11, SLIP_END, SLIP_ESC, 0x22], &mut sink).unwrap();
     assert_eq!(
         sink.bytes,
-        [SLIP_END, 0x11, SLIP_ESC, SLIP_ESC_END, SLIP_ESC,
-         SLIP_ESC_ESC, 0x22, SLIP_END]
+        [
+            SLIP_END,
+            0x11,
+            SLIP_ESC,
+            SLIP_ESC_END,
+            SLIP_ESC,
+            SLIP_ESC_ESC,
+            0x22,
+            SLIP_END
+        ]
     );
     assert_eq!(sink.flushes, 1);
 }
@@ -88,10 +96,22 @@ fn decode_rejects_bad_escape_and_recovers() {
 #[test]
 fn one_frame_round_trip() {
     let mut rx = DoubleBuffer::<8>::new();
-    feed(&mut rx, &[SLIP_END, 1, SLIP_ESC, SLIP_ESC_END,
-                  SLIP_ESC, SLIP_ESC_ESC, SLIP_END]);
+    feed(
+        &mut rx,
+        &[
+            SLIP_END,
+            1,
+            SLIP_ESC,
+            SLIP_ESC_END,
+            SLIP_ESC,
+            SLIP_ESC_ESC,
+            SLIP_END,
+        ],
+    );
     let result = rx.poll();
-    let Poll::Ready { index, len } = result else { panic!("not ready"); };
+    let Poll::Ready { index, len } = result else {
+        panic!("not ready");
+    };
     assert_eq!(len, 3);
     assert_eq!(rx.frame(index), Some(&[1, SLIP_END, SLIP_ESC][..]));
     rx.release_selected();
@@ -176,6 +196,12 @@ fn full_sized_frame_boundary() {
         rx.receive(0x5a);
     }
     rx.receive(SLIP_END);
-    assert_eq!(rx.poll(), Poll::Ready { index: 0, len: FRAME_BUFFER_SIZE });
+    assert_eq!(
+        rx.poll(),
+        Poll::Ready {
+            index: 0,
+            len: FRAME_BUFFER_SIZE
+        }
+    );
     assert_eq!(rx.frame(0).unwrap()[FRAME_BUFFER_SIZE - 1], 0x5a);
 }
