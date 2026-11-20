@@ -7,8 +7,8 @@
 //! force the linker to resolve the ROM CDC device pointer and FIFO fill call.
 
 use core::{arch::global_asm, panic::PanicInfo};
-use stub_rom::p4_usb::P4RomCdcTx;
 use stub_core::tx::FifoFill;
+use stub_rom::p4_usb::P4RomCdcTx;
 
 global_asm!(
     r#"
