@@ -9,3 +9,6 @@ name = "p4-foundation"
 path = "src/main.rs"
 test = false
 bench = false
+
+[dependencies]
+stub-rom = { path = "../../crates/stub-rom" }
