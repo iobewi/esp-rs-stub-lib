@@ -138,10 +138,7 @@ impl<const N: usize> TxQueue<N> {
             self.counters.short_accepts = self.counters.short_accepts.saturating_add(1);
         }
         self.head += accepted as usize;
-        self.counters.accepted_bytes = self
-            .counters
-            .accepted_bytes
-            .saturating_add(accepted as u64);
+        self.counters.accepted_bytes = self.counters.accepted_bytes.saturating_add(accepted as u64);
         let remaining = self.pending();
         if remaining == 0 {
             self.head = 0;
