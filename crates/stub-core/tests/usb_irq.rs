@@ -565,7 +565,10 @@ impl RxLineState for RacingLineMask<'_> {
     }
 
     fn inspect_line_state_quiesced(&mut self) -> LineDecision {
-        assert!(self.quiesced, "line inspection must be under CDC quiescence");
+        assert!(
+            self.quiesced,
+            "line inspection must be under CDC quiescence"
+        );
         self.inspections += 1;
         self.line
     }
