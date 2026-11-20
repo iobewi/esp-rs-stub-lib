@@ -80,12 +80,26 @@ without relying on another interrupt. The caller must bound prolonged
 no-progress periods with a policy above this layer; no automatic reset or
 infinite blocking loop is introduced.
 
-A benign CDC line-state notification is acknowledged separately through
-`RxIrqCoordinator::acknowledge_benign_line_change`. This requires
-foreground validation of RTS/line state and a mask implementation that
-synchronously quiesces **all** CDC callbacks, including line-state callbacks.
-The method clears only the line-state notification, preserving buffered
+A benign CDC line-state notification is resolved via
+`RxIrqCoordinator::resolve_line_change`, which masks RX, synchronously
+quiesces **all** CDC callbacks (including line-state callbacks), and only
+then inspects RTS/session state under that exclusion. Only a benign
+inspection can clear the line-state flag, before the exclusion ends.
+A reset edge, detach, or ambiguous state leaves the flag pending.
+The method preserves buffered
 SLIP frames, RX pending notifications, the pump remainder and its draining
 state. A real USB reset, detach or invalid session still requires external
 transport recovery followed by `reset_after_resync` with its deliberate
 FIFO and software-buffer purge.
+
+## P2 race correction: inspection and acknowledgement under one exclusion
+
+`RxLineState` separates RX masking from full CDC callback quiescence.
+`resolve_line_change` invokes `mask_rx`, then
+`quiesce_cdc_callbacks`, then `inspect_line_state_quiesced`, and clears
+the notification only on `LineDecision::Benign` while the callback
+producers remain quiescent. An RTS reset edge arriving during quiescence
+is therefore included in the inspection, not silently acknowledged on a
+stale benign state. An invalid/uncertain session remains latched for reset.
+This is a required platform contract, not evidence that the ECO7 ROM
+already supports such exclusion.

@@ -1,5 +1,8 @@
 use stub_core::rx::{DoubleBuffer, Poll};
-use stub_core::usb_irq::{RxIrqCoordinator, RxIrqMask, RxIrqSignal, ServiceError, ServiceResult};
+use stub_core::usb_irq::{
+    LineDecision, RxIrqCoordinator, RxIrqMask, RxIrqSignal, RxLineState, ServiceError,
+    ServiceResult,
+};
 use stub_core::usb_rx::{RxFailure, RxPump, RxRead, RxSource};
 
 #[derive(Default)]
@@ -7,6 +10,26 @@ struct FakeMask {
     masked: bool,
     masks: usize,
     unmasks: usize,
+    cdc_quiesced: bool,
+    line_decision: LineDecision,
+}
+
+impl Default for LineDecision {
+    fn default() -> Self {
+        Self::Benign
+    }
+}
+
+impl RxLineState for FakeMask {
+    fn quiesce_cdc_callbacks(&mut self) {
+        assert!(self.masked);
+        self.cdc_quiesced = true;
+    }
+
+    fn inspect_line_state_quiesced(&mut self) -> LineDecision {
+        assert!(self.cdc_quiesced);
+        self.line_decision
+    }
 }
 
 impl RxIrqMask for FakeMask {
@@ -451,8 +474,11 @@ fn benign_line_change_ack_preserves_completed_frame_and_pending_rx() {
         Ok(ServiceResult::LinkChange)
     );
     let reads = fifo.calls;
-    // Foreground has checked RTS and confirmed no reset is necessary.
-    coordinator.acknowledge_benign_line_change(&irq, &mut hw);
+    // Inspection must take place after CDC callback quiescence.
+    assert_eq!(
+        coordinator.resolve_line_change(&irq, &mut hw),
+        LineDecision::Benign
+    );
     assert!(!irq.link_change_pending());
     assert_eq!(pump.pending(), 3);
     assert_eq!(frames.frame(0), Some(&[0x11][..]));
@@ -489,7 +515,10 @@ fn benign_line_change_ack_keeps_undrained_fifo_work() {
         coordinator.service_once(&irq, &mut hw, &mut fifo, &mut pump, &mut frames),
         Ok(ServiceResult::LinkChange)
     );
-    coordinator.acknowledge_benign_line_change(&irq, &mut hw);
+    assert_eq!(
+        coordinator.resolve_line_change(&irq, &mut hw),
+        LineDecision::Benign
+    );
     assert_eq!(
         coordinator.service_once(&irq, &mut hw, &mut fifo, &mut pump, &mut frames),
         Ok(ServiceResult::Progress { received: 3 })

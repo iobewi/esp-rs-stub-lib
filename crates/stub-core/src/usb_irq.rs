@@ -85,6 +85,25 @@ pub trait RxIrqMask {
     fn unmask_rx(&mut self);
 }
 
+/// The outcome of checking the line *after* all relevant CDC callbacks
+/// have been synchronously quiesced, never before.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LineDecision {
+    /// Current line state and session are valid; preserve received data.
+    Benign,
+    /// RTS reset edge, detach, invalid session, or uncertain state.
+    ResyncRequired,
+}
+
+/// Hardware-specific critical section for CDC line-state inspection.
+/// Unlike RxIrqMask::mask_rx, this must exclude ALL CDC callback producers,
+/// including line changes. The exclusion remains active through the
+/// subsequent line-state read and atomic acknowledgement.
+pub trait RxLineState: RxIrqMask {
+    fn quiesce_cdc_callbacks(&mut self);
+    fn inspect_line_state_quiesced(&mut self) -> LineDecision;
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServiceResult {
     /// No IRQ/pending data; hardware may remain unmasked.
@@ -147,21 +166,29 @@ impl RxIrqCoordinator {
         self.masked = true;
     }
 
-    /// Acknowledge a benign line-state notification *without* clearing
-    /// received data, the SLIP decoder, pending RX or FIFO drain state.
+    /// Resolve a line-state notification within one quiescence interval.
     ///
-    /// The caller must FIRST inspect ROM CDC line state and independently
-    /// establish that no reset/detach/session change is required. The mask
-    /// implementation must synchronously quiesce ALL CDC callbacks (including
-    /// line-state callbacks) before this atomic clear; masking RX alone is
-    /// insufficient. Otherwise a concurrent line event could be lost.
-    pub fn acknowledge_benign_line_change<M: RxIrqMask>(
+    /// First mask RX, then synchronously quiesce ALL CDC callbacks; only
+    /// afterwards inspect the line and session. If benign, clear ONLY the
+    /// line flag while callbacks are still quiesced, retaining RX events,
+    /// SLIP frames, pump bytes and drain state. On reset/uncertainty, keep
+    /// the event latched; external resynchronization is required.
+    ///
+    /// The platform MUST keep line callbacks excluded from return of
+    /// quiesce_cdc_callbacks() until this method has cleared the flag.
+    /// Hardware validation of this contract on ECO7 is still outstanding.
+    pub fn resolve_line_change<M: RxLineState>(
         &mut self,
         signal: &RxIrqSignal,
         mask: &mut M,
-    ) {
+    ) -> LineDecision {
         self.mask(mask);
-        signal.acknowledge_line_change_masked();
+        mask.quiesce_cdc_callbacks();
+        let decision = mask.inspect_line_state_quiesced();
+        if decision == LineDecision::Benign {
+            signal.acknowledge_line_change_masked();
+        }
+        decision
     }
 
     /// One bounded foreground step. It never calls a FIFO reader if RX is
