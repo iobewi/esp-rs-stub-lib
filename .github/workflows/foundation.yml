@@ -26,7 +26,8 @@ jobs:
           python -m unittest discover -s tests -v
           mkdir -p build
           python tools/elf2stub.py target/riscv32imc-unknown-none-elf/release/p4-foundation build/p4-foundation.json
-      - name: Compare generated JSON to PR1 on main
+      - name: Compare generated JSON to PR1 on main (layout PR only)
+        if: github.head_ref == 'refactor/p4-target-layout' || github.ref == 'refs/heads/refactor/p4-target-layout'
         run: |
           BASELINE_DIR="$RUNNER_TEMP/p4-pr1-baseline"
           git worktree add --detach "$BASELINE_DIR" 0e82b1c7f2206b2c03f269f32fd52e4e7e303e7f
