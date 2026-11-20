@@ -5,7 +5,6 @@ use stub_core::usb_irq::{
 };
 use stub_core::usb_rx::{RxFailure, RxPump, RxRead, RxSource};
 
-#[derive(Default)]
 struct FakeMask {
     masked: bool,
     masks: usize,
@@ -14,9 +13,15 @@ struct FakeMask {
     line_decision: LineDecision,
 }
 
-impl Default for LineDecision {
+impl Default for FakeMask {
     fn default() -> Self {
-        Self::Benign
+        Self {
+            masked: false,
+            masks: 0,
+            unmasks: 0,
+            cdc_quiesced: false,
+            line_decision: LineDecision::Benign,
+        }
     }
 }
 
@@ -525,4 +530,117 @@ fn benign_line_change_ack_keeps_undrained_fifo_work() {
     );
     assert_eq!(frames.poll(), Poll::Ready { index: 0, len: 1 });
     assert_eq!(frames.frame(0), Some(&[0x77][..]));
+}
+
+struct RacingLineMask<'a> {
+    signal: &'a RxIrqSignal,
+    masked: bool,
+    quiesced: bool,
+    line: LineDecision,
+    inject_on_quiesce: bool,
+    inspections: usize,
+}
+
+impl RxIrqMask for RacingLineMask<'_> {
+    fn mask_rx(&mut self) {
+        self.masked = true;
+    }
+
+    fn unmask_rx(&mut self) {
+        self.masked = false;
+    }
+}
+
+impl RxLineState for RacingLineMask<'_> {
+    fn quiesce_cdc_callbacks(&mut self) {
+        assert!(self.masked);
+        if self.inject_on_quiesce {
+            // The second callback arrives just BEFORE full quiescence:
+            // an RTS reset edge supersedes the previously benign state.
+            self.signal.notify_line_state_changed();
+            self.line = LineDecision::ResyncRequired;
+            self.inject_on_quiesce = false;
+        }
+        self.quiesced = true;
+    }
+
+    fn inspect_line_state_quiesced(&mut self) -> LineDecision {
+        assert!(self.quiesced, "line inspection must be under CDC quiescence");
+        self.inspections += 1;
+        self.line
+    }
+}
+
+#[test]
+fn second_rts_event_during_quiescence_cannot_be_acknowledged_as_benign() {
+    let signal = RxIrqSignal::new();
+    signal.notify_line_state_changed();
+    let mut hw = RacingLineMask {
+        signal: &signal,
+        masked: false,
+        quiesced: false,
+        line: LineDecision::Benign,
+        inject_on_quiesce: true,
+        inspections: 0,
+    };
+    let mut coordinator = RxIrqCoordinator::new();
+    let mut pump = RxPump::new();
+    let mut frames = DoubleBuffer::<8>::new();
+    let mut fifo = Fifo::new(&[0xC0, 0x41, 0xC0]);
+
+    assert_eq!(
+        coordinator.service_once(&signal, &mut hw, &mut fifo, &mut pump, &mut frames),
+        Ok(ServiceResult::LinkChange)
+    );
+    assert_eq!(fifo.calls, 0);
+
+    // A stale pre-quiescence inspection would have said Benign.
+    assert_eq!(
+        coordinator.resolve_line_change(&signal, &mut hw),
+        LineDecision::ResyncRequired
+    );
+    assert_eq!(hw.inspections, 1);
+    assert!(hw.quiesced);
+    assert!(hw.masked);
+    assert!(signal.link_change_pending());
+    assert_eq!(
+        coordinator.service_once(&signal, &mut hw, &mut fifo, &mut pump, &mut frames),
+        Ok(ServiceResult::LinkChange)
+    );
+    assert_eq!(fifo.calls, 0);
+    assert_eq!(pump.pending(), 0);
+}
+
+#[test]
+fn benign_inspection_under_quiescence_clears_line_flag_without_discarding_rx() {
+    let signal = RxIrqSignal::new();
+    let mut hw = RacingLineMask {
+        signal: &signal,
+        masked: false,
+        quiesced: false,
+        line: LineDecision::Benign,
+        inject_on_quiesce: false,
+        inspections: 0,
+    };
+    let mut coordinator = RxIrqCoordinator::new();
+    let mut pump = RxPump::new();
+    let mut frames = DoubleBuffer::<8>::new();
+    let mut fifo = Fifo::new(&[0xC0, 0x11, 0xC0, 0xC0, 0x22, 0xC0]);
+
+    signal.notify_rx_masked();
+    assert_eq!(
+        coordinator.service_once(&signal, &mut hw, &mut fifo, &mut pump, &mut frames),
+        Ok(ServiceResult::Progress { received: 6 })
+    );
+    assert_eq!(pump.pending(), 3);
+    signal.notify_line_state_changed();
+    assert_eq!(
+        coordinator.resolve_line_change(&signal, &mut hw),
+        LineDecision::Benign
+    );
+    assert_eq!(hw.inspections, 1);
+    assert!(hw.quiesced);
+    assert!(!signal.link_change_pending());
+    assert_eq!(pump.pending(), 3);
+    assert_eq!(frames.frame(0), Some(&[0x11][..]));
 }
