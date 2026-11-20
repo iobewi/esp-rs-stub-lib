@@ -29,9 +29,7 @@ impl AddressRange {
 
     pub const fn overlaps(self, other: Self) -> bool {
         match (self.end(), other.end()) {
-            (Some(end), Some(other_end)) => {
-                self.start < other_end && other.start < end
-            }
+            (Some(end), Some(other_end)) => self.start < other_end && other.start < end,
             _ => false,
         }
     }
@@ -43,16 +41,28 @@ mod tests {
 
     #[test]
     fn range_boundaries() {
-        let r = AddressRange { start: 0x1000, size: 0x100 };
+        let r = AddressRange {
+            start: 0x1000,
+            size: 0x100,
+        };
         assert!(r.contains(0x1000));
         assert!(!r.contains(0x1100));
-        assert!(!r.overlaps(AddressRange { start: 0x1100, size: 8 }));
-        assert!(r.overlaps(AddressRange { start: 0x10ff, size: 2 }));
+        assert!(!r.overlaps(AddressRange {
+            start: 0x1100,
+            size: 8,
+        }));
+        assert!(r.overlaps(AddressRange {
+            start: 0x10ff,
+            size: 2,
+        }));
     }
 
     #[test]
     fn rejects_address_overflow() {
-        let r = AddressRange { start: u32::MAX, size: 2 };
+        let r = AddressRange {
+            start: u32::MAX,
+            size: 2,
+        };
         assert_eq!(r.end(), None);
         assert!(!r.contains(u32::MAX));
     }

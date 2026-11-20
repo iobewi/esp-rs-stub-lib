@@ -15,11 +15,7 @@ unsafe extern "C" {
         length: i32,
     ) -> i32;
 
-    pub fn esp_rom_cdc_acm_fifo_read(
-        dev: *mut CdcAcmDevice,
-        rx_data: *mut u8,
-        length: i32,
-    ) -> i32;
+    pub fn esp_rom_cdc_acm_fifo_read(dev: *mut CdcAcmDevice, rx_data: *mut u8, length: i32) -> i32;
 
     pub fn esp_rom_cdc_acm_rx_fifo_cnt(dev: *mut CdcAcmDevice) -> i32;
 }
