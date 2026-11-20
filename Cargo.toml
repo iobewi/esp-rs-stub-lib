@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/stub-core",
+    "crates/stub-rom",
+    "examples/p4-foundation",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[profile.release]
+panic = "abort"
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = false

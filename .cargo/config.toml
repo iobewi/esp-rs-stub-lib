@@ -1,0 +1,9 @@
+[alias]
+p4-check = "check --release --target riscv32imc-unknown-none-elf -p p4-foundation"
+p4-build = "build --release --target riscv32imc-unknown-none-elf -p p4-foundation"
+
+[target.riscv32imc-unknown-none-elf]
+rustflags = [
+    "-C", "link-arg=-Texamples/p4-foundation/p4-memory.x",
+    "-C", "link-arg=-Texamples/p4-foundation/p4-rom.x",
+]

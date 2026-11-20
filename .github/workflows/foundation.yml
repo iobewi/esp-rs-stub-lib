@@ -1,0 +1,27 @@
+name: P4 foundation (software only)
+on:
+  push:
+    branches: ["feat/p4-rust-foundation"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv32imc-unknown-none-elf
+      - name: Rust host library tests
+        run: cargo test --workspace --exclude p4-foundation
+      - name: Cross-compile P4 RAM foundation
+        run: cargo build --release --target riscv32imc-unknown-none-elf -p p4-foundation
+      - name: Validate ELF and export stub JSON
+        run: |
+          python -m pip install pyelftools
+          python -m unittest discover -s tests -v
+          mkdir -p build
+          python tools/elf2stub.py target/riscv32imc-unknown-none-elf/release/p4-foundation build/p4-foundation.json
+      - name: Check format
+        run: cargo fmt --all -- --check
