@@ -32,17 +32,27 @@ queue with a `FifoFill` injection point. It retains any unaccepted bytes,
 treats zero acceptance as backpressure, and reports negative/invalid
 returns without silently clearing pending data. `pump_once()` makes at
 most one FIFO call; the caller controls retry policy so zero acceptance
-does not cause a busy-spin. It exposes:
+does not cause a busy-spin. A retryable error must carry an adapter-backed
+**zero-byte consumption guarantee**. Indeterminate negative errors and
+over-acceptance poison the queue: no replay, no enqueue, no further FIFO
+call until the transport has re-established a new framing/session and
+explicitly invoked `reset_after_resync()`. That reset discards all
+ambiguous queued bytes; it cannot resynchronize USB or SLIP by itself.
+It exposes:
 - `fill_calls`, `accepted_bytes`
 - `short_accepts`, `zero_accepts`, `invalid_accepts`
 
 Unit tests model 64-, 32-, 1- and 0-byte acceptance, invalid return
-values, saturation/backpressure and lossless ordered recovery.
+values, saturation/backpressure and lossless ordered recovery. Additional
+fault-injection tests simulate bytes being consumed before an invalid
+return, and prove that poisoned queues never replay them.
 
-The default *experimental* staging size is 4,096 bytes. This is only an
-application-side queue capacity, **not evidence that the ROM accepts a
-4,096-byte transfer in a single call**. Tests cannot establish physical
-throughput or that the ROM accepts more than 64 bytes.
+The *experimental* staging capacity is 4,096 bytes, but **the default
+per-call ROM offer limit is 64 bytes**, configurable independently by
+`TxQueue::<N>::with_max_offer(limit)`. The first 64-vs-4,096 comparison
+therefore uses the same 64-byte maximum ROM offer in both cases.
+Only after ECO7 acceptance sizes are established should the per-call
+limit be increased. The ROM is not proven to accept 4,096 bytes in one call.
 
 ### Integration gates (not performed in PR #6)
 
@@ -57,8 +67,9 @@ throughput or that the ROM accepts more than 64 bytes.
    ELF/.text/.data/BSS budgets and esptool-js handshake.
 4. Instrument each actual FIFO call: attempted length, accepted length,
    call count, duration distribution, stall/error counts and end-to-end
-   throughput. Compare **64 vs 4,096 application-side staging** with the
-   **same payload and operating conditions**.
+   throughput. Compare **64 vs 4,096 application-side staging** while
+   holding the ROM offer limit at **64 bytes** and keeping payload and
+   operating conditions identical. Only then sweep the ROM offer limit.
 5. Run read-only qualification under explicit IDLab device/session
    authorization, preserving baseline hashes. No flash erase/write.
 
