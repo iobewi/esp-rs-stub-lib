@@ -1,6 +1,6 @@
-# PR1 scope: P4 RAM foundation
+# P4 RAM foundation
 
-This is a software-only foundation. **It is not a flash stub.** In particular,
+The first-class workspace binary crate lives in `targets/esp32p4/`, not `examples/`. The Cargo package remains `p4-foundation`. Shared protocol logic will live in `crates/stub-core`, while chip-specific ROM bindings remain explicit until a common abstraction is justified.\n\nThis is a software-only foundation. **It is not a flash stub.** In particular,
 it intentionally does not answer `OHAI`, handle SLIP, flash memory, or USB
 interrupts. Never substitute this image into a production IDLab session.
 

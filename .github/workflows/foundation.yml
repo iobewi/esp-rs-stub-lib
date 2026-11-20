@@ -1,7 +1,7 @@
 name: P4 foundation (software only)
 on:
   push:
-    branches: ["feat/p4-rust-foundation"]
+    branches: ["feat/p4-rust-foundation", "refactor/p4-target-layout"]
   pull_request:
   workflow_dispatch:
 
@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: riscv32imc-unknown-none-elf
@@ -24,6 +26,17 @@ jobs:
           python -m unittest discover -s tests -v
           mkdir -p build
           python tools/elf2stub.py target/riscv32imc-unknown-none-elf/release/p4-foundation build/p4-foundation.json
+      - name: Compare generated JSON to PR1 on main
+        run: |
+          BASELINE_DIR="$RUNNER_TEMP/p4-pr1-baseline"
+          git worktree add --detach "$BASELINE_DIR" 0e82b1c7f2206b2c03f269f32fd52e4e7e303e7f
+          (
+            cd "$BASELINE_DIR"
+            cargo build --release --target riscv32imc-unknown-none-elf -p p4-foundation
+            mkdir -p build
+            python tools/elf2stub.py target/riscv32imc-unknown-none-elf/release/p4-foundation build/p4-foundation.json
+          )
+          python tools/compare_stub_json.py "$BASELINE_DIR/build/p4-foundation.json" build/p4-foundation.json --report build/p4-json-comparison.json
       - name: Preserve ELF layout and disassembly for ABI review
         run: |
           LLVM_BIN="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin"
@@ -35,10 +48,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: p4-foundation-abi-review
+          name: p4-foundation-target-layout-review
           path: |
             target/riscv32imc-unknown-none-elf/release/p4-foundation
             build/p4-foundation.json
+            build/p4-json-comparison.json
             build/p4-foundation.disasm.txt
             build/p4-foundation.elf-report.txt
           if-no-files-found: warn
