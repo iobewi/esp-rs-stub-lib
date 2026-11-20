@@ -1,3 +1,11 @@
+// SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
+// SPDX-FileCopyrightText: 2026 IOBEWI
+// SPDX-License-Identifier: MIT
+//
+// Rust port/adaptation based on Espressif esp-flasher-stub/src/slip.c.
+// Original upstream license: Apache-2.0 OR MIT (MIT option selected).
+// See THIRD_PARTY_NOTICES.md for upstream copyright and permission notice.
+
 //! Bounded, allocation-free SLIP codec for byte-oriented transports.
 //!
 //! The decoder mirrors Espressif's framing rules: C0 starts a frame, zero

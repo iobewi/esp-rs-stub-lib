@@ -1,3 +1,11 @@
+// SPDX-FileCopyrightText: 2026 Espressif Systems (Shanghai) CO LTD
+// SPDX-FileCopyrightText: 2026 IOBEWI
+// SPDX-License-Identifier: MIT
+//
+// Rust port/adaptation based on Espressif esp-flasher-stub/src/frame_buffer.c.
+// Original upstream license: Apache-2.0 OR MIT (MIT option selected).
+// See THIRD_PARTY_NOTICES.md for upstream copyright and permission notice.
+
 //! Two fixed-size receive slots, with zero heap allocations.
 //!
 //! The C reference switches the RX slot when a complete/error frame is
