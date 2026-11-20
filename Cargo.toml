@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "crates/stub-core",
     "crates/stub-rom",
-    "examples/p4-foundation",
+    "targets/esp32p4",
 ]
 
 [workspace.package]
