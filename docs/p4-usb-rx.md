@@ -53,3 +53,19 @@ count/read call frequency and latency, FIFO acceptance, complete SLIP
 payload hashes and end-to-end throughput. Preserve the historical TX
 reference (~45.4 KiB/s, ~1.24 ms/call), with a controlled 64-byte
 ROM-offer baseline before increasing any offer limits.
+
+## Review P2: lossless multi-frame batches and RX link validation
+
+`RxPump` retains unread bytes from the ROM batch in a fixed 64-byte
+array. When `DoubleBuffer` disarms on a SLIP delimiter or error, the
+pump stops decoding without discarding the remainder. A later
+`DoubleBuffer::poll()` can rearm a spare slot; only then may a subsequent
+`pump_once()` drain the cached remainder. No new ROM reads are allowed
+while disarmed or while cached bytes remain, and `Paused` makes
+backpressure explicit. The `Progress.received` field counts bytes fetched
+from ROM during that call (possibly zero when processing cached bytes).
+
+The separate, opt-in ROM link smoke ELF now invokes both `RxSource::read`
+and `FifoFill::fill`. CI must verify resolved RX symbols and actual
+call destinations: `rx_fifo_cnt = 0x4FC008D4`, `fifo_read =
+0x4FC008D8` in addition to TX and the device pointer slot.

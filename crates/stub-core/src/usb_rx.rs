@@ -1,9 +1,9 @@
 //! Bounded, sequential USB CDC RX bridge for a single foreground owner.
 //!
-//! This module never installs an ISR or touches ROM directly. A source may
-//! supply up to RX_BURST bytes per call. All bytes are delivered in order to
-//! DoubleBuffer, which must remain exclusively borrowed by the caller.
-//! Unexpected RX reports poison the bridge until external resynchronization.
+//! A ROM read may contain multiple SLIP frames. Bytes following a completed
+//! frame are retained in the pump until DoubleBuffer::poll() arms the spare
+//! slot. Never read the ROM while the receiver is disarmed or buffered bytes
+//! remain. No ISR access, heap allocation or implicit retry.
 
 use crate::rx::DoubleBuffer;
 
@@ -27,6 +27,10 @@ pub trait RxSource {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RxPumpResult {
     Empty,
+    /// Receiver is disarmed. No ROM call and no bytes discarded.
+    Paused { pending: usize },
+    /// Number of bytes fetched from the source on this call. May be zero if
+    /// previously buffered bytes were drained after a receiver rearm.
     Progress { received: usize },
 }
 
@@ -39,7 +43,11 @@ pub enum RxPumpError {
 /// Single-owner, allocation-free RX pump. NOT ISR-safe.
 pub struct RxPump {
     poisoned: bool,
+    batch: [u8; RX_BURST],
+    cursor: usize,
+    end: usize,
     pub calls: u64,
+    /// Bytes accepted from the source (including bytes pending in batch).
     pub received_bytes: u64,
 }
 
@@ -53,6 +61,9 @@ impl RxPump {
     pub const fn new() -> Self {
         Self {
             poisoned: false,
+            batch: [0; RX_BURST],
+            cursor: 0,
+            end: 0,
             calls: 0,
             received_bytes: 0,
         }
@@ -62,14 +73,34 @@ impl RxPump {
         self.poisoned
     }
 
-    /// External caller must first establish a fresh framing/session and
-    /// discard stale ROM RX data. This call only unlocks the software pump.
-    /// The DoubleBuffer is reset separately with reset_after_resync().
-    pub fn reset_after_resync(&mut self) {
-        self.poisoned = false;
+    pub const fn pending(&self) -> usize {
+        self.end - self.cursor
     }
 
-    /// One source call maximum per invocation, no blocking retry.
+    /// External caller must first establish a fresh framing/session and
+    /// discard stale ROM RX data. This discards pending software RX data and
+    /// unlocks the pump. Reset the DoubleBuffer separately.
+    pub fn reset_after_resync(&mut self) {
+        self.poisoned = false;
+        self.cursor = 0;
+        self.end = 0;
+    }
+
+    /// Drain cached bytes until a complete/error frame disarms the receiver.
+    /// A disarmed receiver cannot consume additional bytes.
+    fn drain<const N: usize>(&mut self, buffer: &mut DoubleBuffer<N>) {
+        while self.cursor < self.end && buffer.is_armed() {
+            buffer.receive(self.batch[self.cursor]);
+            self.cursor += 1;
+        }
+        if self.cursor == self.end {
+            self.cursor = 0;
+            self.end = 0;
+        }
+    }
+
+    /// At most one ROM source call per invocation. Process pending bytes
+    /// first, and never call the ROM while RX is disarmed.
     pub fn pump_once<S: RxSource, const N: usize>(
         &mut self,
         source: &mut S,
@@ -78,17 +109,26 @@ impl RxPump {
         if self.poisoned {
             return Err(RxPumpError::ResyncRequired);
         }
-        let mut batch = [0u8; RX_BURST];
+        if !buffer.is_armed() {
+            return Ok(RxPumpResult::Paused {
+                pending: self.pending(),
+            });
+        }
+        if self.pending() > 0 {
+            self.drain(buffer);
+            return Ok(RxPumpResult::Progress { received: 0 });
+        }
+
         self.calls = self.calls.saturating_add(1);
-        match source.read(&mut batch) {
+        match source.read(&mut self.batch) {
             Ok(count) if count <= RX_BURST => {
                 if count == 0 {
                     return Ok(RxPumpResult::Empty);
                 }
-                for byte in batch[..count].iter().copied() {
-                    buffer.receive(byte);
-                }
+                self.cursor = 0;
+                self.end = count;
                 self.received_bytes = self.received_bytes.saturating_add(count as u64);
+                self.drain(buffer);
                 Ok(RxPumpResult::Progress { received: count })
             }
             Ok(returned) => {

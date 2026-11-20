@@ -133,3 +133,87 @@ fn short_reads_preserve_escape_sequences() {
     assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
     assert_eq!(rx.frame(0), Some(&[0xC0][..]));
 }
+
+#[test]
+fn two_slip_frames_in_one_rom_read_survive_without_reordering() {
+    let mut sim = SimRx::new(&[0xC0, 0x11, 0xC0, 0xC0, 0x22, 0xC0], 64);
+    let mut pump = RxPump::new();
+    let mut rx = DoubleBuffer::<8>::new();
+
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Ok(RxPumpResult::Progress { received: 6 })
+    );
+    assert_eq!(sim.calls, 1);
+    assert_eq!(pump.pending(), 3);
+    assert_eq!(rx.frame(0), Some(&[0x11][..]));
+
+    // Cannot poll the ROM before a slot has been rearmed, even with a
+    // complete frame and pending software bytes.
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Ok(RxPumpResult::Paused { pending: 3 })
+    );
+    assert_eq!(sim.calls, 1);
+
+    assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
+    assert!(rx.is_armed());
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Ok(RxPumpResult::Progress { received: 0 })
+    );
+    assert_eq!(pump.pending(), 0);
+    assert_eq!(sim.calls, 1);
+    assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
+    assert_eq!(rx.frame(0), Some(&[0x11][..]));
+    rx.release_selected();
+    assert_eq!(rx.poll(), Poll::Ready { index: 1, len: 1 });
+    assert_eq!(rx.frame(1), Some(&[0x22][..]));
+    assert_eq!(pump.received_bytes, 6);
+}
+
+#[test]
+fn disarmed_rx_never_polls_rom_even_if_software_batch_is_empty() {
+    let mut sim = SimRx::new(&[0xC0, 0x11, 0xC0, 0xC0, 0x22, 0xC0], 3);
+    let mut pump = RxPump::new();
+    let mut rx = DoubleBuffer::<8>::new();
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Ok(RxPumpResult::Progress { received: 3 })
+    );
+    assert!(!rx.is_armed());
+    assert_eq!(pump.pending(), 0);
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Ok(RxPumpResult::Paused { pending: 0 })
+    );
+    assert_eq!(sim.calls, 1);
+    assert_eq!(sim.pos, 3);
+    assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Ok(RxPumpResult::Progress { received: 3 })
+    );
+    assert_eq!(sim.calls, 2);
+    assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
+    rx.release_selected();
+    assert_eq!(rx.poll(), Poll::Ready { index: 1, len: 1 });
+}
+
+#[test]
+fn resync_discards_pending_bytes_and_cannot_replay_them() {
+    let mut sim = SimRx::new(&[0xC0, 0x11, 0xC0, 0xC0, 0x22, 0xC0], 64);
+    let mut pump = RxPump::new();
+    let mut rx = DoubleBuffer::<8>::new();
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Ok(RxPumpResult::Progress { received: 6 })
+    );
+    assert_eq!(pump.pending(), 3);
+    // External reset discards pending bytes in the ROM and in the pump.
+    rx.reset_after_resync();
+    pump.reset_after_resync();
+    assert_eq!(pump.pending(), 0);
+    assert_eq!(pump.pump_once(&mut sim, &mut rx), Ok(RxPumpResult::Empty));
+    assert_eq!(rx.poll(), Poll::Idle);
+}

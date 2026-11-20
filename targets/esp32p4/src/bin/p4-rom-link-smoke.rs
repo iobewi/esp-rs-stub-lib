@@ -8,6 +8,7 @@
 
 use core::{arch::global_asm, panic::PanicInfo};
 use stub_core::tx::FifoFill;
+use stub_core::usb_rx::RxSource;
 use stub_rom::p4_usb::P4RomCdcTx;
 
 global_asm!(
@@ -52,6 +53,9 @@ pub extern "C" fn rust_entry() -> ! {
         let bytes = core::hint::black_box(&[0xC0, 0x42, 0xC0]);
         let result = tx.fill(bytes);
         let _ = core::hint::black_box(result);
+        let mut rx_bytes = core::hint::black_box([0u8; 64]);
+        let rx_result = tx.read(&mut rx_bytes);
+        let _ = core::hint::black_box(rx_result);
     }
     loop {
         core::hint::spin_loop();
