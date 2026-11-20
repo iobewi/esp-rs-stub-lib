@@ -3,6 +3,8 @@ import unittest
 from tools.check_p4_rom_link import (
     ROM_RX_COUNT,
     ROM_RX_READ,
+    find_handler_address,
+    find_mmio_accesses,
     find_pointer_load,
     find_rom_call,
 )
@@ -57,6 +59,29 @@ class RomRxLinkTargetsTests(unittest.TestCase):
 4ff50084:    jalr -0x7a8(ra)
 """
         self.assertFalse(find_rom_call(code, ROM_RX_COUNT))
+
+
+class BringupAddressTests(unittest.TestCase):
+    def test_mmio_store_uses_the_right_base_with_interleaved_instructions(self):
+        code = """
+4ff50a5c:    lui a0, 0x500e5
+4ff50a60:    lw a1, 0x15c(a0)
+4ff50a64:    ori a1, a1, 0x1
+4ff50a68:    sw a1, 0x15c(a0)
+"""
+        self.assertEqual(find_mmio_accesses(code, 0x500E515C), {"lw", "sw"})
+        changed = code.replace("ori a1,", "ori a0,")
+        self.assertEqual(find_mmio_accesses(changed, 0x500E515C), {"lw"})
+        self.assertFalse(find_mmio_accesses(code, 0x500E5160))
+
+    def test_handler_uses_second_argument_register_and_expected_address(self):
+        code = """
+4ff50a86:    lui a1, 0x4fc01
+4ff50a8a:    addi a1, a1, -0x68c
+"""
+        self.assertTrue(find_handler_address(code))
+        self.assertFalse(find_handler_address(code.replace("-0x68c", "-0x680")))
+        self.assertFalse(find_handler_address(code.replace("a1", "a2")))
 
 
 if __name__ == "__main__":
