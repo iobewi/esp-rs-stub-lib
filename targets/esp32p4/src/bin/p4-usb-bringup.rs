@@ -11,11 +11,12 @@ use core::{
     arch::{asm, global_asm},
     panic::PanicInfo,
     ptr,
+    sync::atomic::{AtomicBool, Ordering},
 };
 use stub_core::{
     rx::{DoubleBuffer, Poll},
     tx::{PumpResult, TxQueue},
-    usb_irq::{RxIrqCoordinator, RxIrqMask, RxIrqSignal, ServiceResult},
+    usb_irq::{LineDecision, RxIrqCoordinator, RxIrqMask, RxIrqSignal, RxLineState, ServiceResult},
     usb_rx::RxPump,
 };
 use stub_rom::{p4_usb::P4RomCdcTx, CdcAcmDevice};
@@ -62,13 +63,44 @@ const USB_IRQ_MAP_CORE0: *mut u32 = 0x500D_6174 as *mut u32;
 const USB_GAHBCFG: *mut u32 = 0x5000_0008 as *mut u32;
 const EVT_LINE_STATE: i32 = -1;
 const EVT_RX: i32 = -4;
-const TX_ATTEMPTS: usize = 1024;
+const LINE_CTRL_RTS: u32 = 1 << 1;
+const TX_TIMEOUT_US: u32 = 250_000;
+const TX_RETRY_US: u32 = 100;
 
 static SIGNAL: RxIrqSignal = RxIrqSignal::new();
+static LAST_RTS: AtomicBool = AtomicBool::new(false);
+static LINE_FAULT: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Copy)]
+#[repr(u32)]
+enum TxOutcome {
+    Sent = 1,
+    Timeout,
+    FifoError,
+    LinkInvalid,
+}
+
+#[repr(C)]
+struct TxDiagnostics {
+    outcome: TxOutcome,
+    calls: u32,
+    accepted: u32,
+    backpressure: u32,
+}
+
+#[unsafe(no_mangle)]
+static mut P4_USB_TX_DIAGNOSTICS: TxDiagnostics = TxDiagnostics {
+    outcome: TxOutcome::Timeout,
+    calls: 0,
+    accepted: 0,
+    backpressure: 0,
+};
 
 unsafe extern "C" {
     static mut uart_acm_dev: *mut CdcAcmDevice;
     fn esp_rom_get_uart_device() -> *const u8;
+    fn esp_rom_get_cpu_ticks_per_us() -> u32;
+    fn esp_rom_cdc_acm_line_ctrl_get(device: *mut CdcAcmDevice, ctrl: u32, val: *mut u32) -> i32;
     fn esp_rom_esprv_intc_int_set_priority(irq: i32, priority: i32);
     fn esp_rom_isr_attach(irq: i32, handler: unsafe extern "C" fn(*mut ()), arg: *mut ());
     fn esp_rom_isr_mask(mask: i32);
@@ -96,13 +128,56 @@ impl RxIrqMask for CdcRxMask {
     }
 }
 
+impl RxLineState for CdcRxMask {
+    fn quiesce_cdc_callbacks(&mut self) {
+        // Both callback producers run through the ROM ISR on hart 0.
+        // The enclosing foreground critical section already excludes them.
+        let mstatus: u32;
+        unsafe { asm!("csrr {0}, mstatus", out(reg) mstatus, options(nostack)) };
+        assert_eq!(mstatus & 8, 0);
+    }
+
+    fn inspect_line_state_quiesced(&mut self) -> LineDecision {
+        let current = unsafe { ptr::read_volatile(ptr::addr_of!(uart_acm_dev)) };
+        if !LINE_FAULT.load(Ordering::Relaxed) && current == self.0 && observe_rts(self.0) {
+            LineDecision::Benign
+        } else {
+            LineDecision::ResyncRequired
+        }
+    }
+}
+
+fn read_rts(device: *mut CdcAcmDevice) -> Option<bool> {
+    let mut value = 0;
+    let status = unsafe { esp_rom_cdc_acm_line_ctrl_get(device, LINE_CTRL_RTS, &mut value) };
+    (status == 0).then_some(value != 0)
+}
+
+fn observe_rts(device: *mut CdcAcmDevice) -> bool {
+    // Called from the USB ISR or with its delivery excluded on hart 0.
+    // Latch a falling edge even if RTS rises before foreground inspection.
+    match read_rts(device) {
+        Some(rts) => {
+            if LAST_RTS.load(Ordering::Relaxed) && !rts {
+                LINE_FAULT.store(true, Ordering::Relaxed);
+            }
+            LAST_RTS.store(rts, Ordering::Relaxed);
+        }
+        None => LINE_FAULT.store(true, Ordering::Relaxed),
+    }
+    !LINE_FAULT.load(Ordering::Relaxed)
+}
+
 unsafe extern "C" fn cdc_event(device: *mut CdcAcmDevice, status: i32) {
     match status {
         EVT_RX => {
             unsafe { esp_rom_cdc_acm_irq_rx_disable(device) };
             SIGNAL.notify_rx_masked();
         }
-        EVT_LINE_STATE => SIGNAL.notify_line_state_changed(),
+        EVT_LINE_STATE => {
+            observe_rts(device);
+            SIGNAL.notify_line_state_changed();
+        }
         _ => {}
     }
 }
@@ -147,6 +222,7 @@ fn attach() -> Option<(P4RomCdcTx, CdcRxMask)> {
             return None;
         }
         let port = unsafe { P4RomCdcTx::from_active_rom_session() }?;
+        LAST_RTS.store(read_rts(device)?, Ordering::Relaxed);
         // The P4 ROM driver and interrupt vector remain installed; route only USB OTG.
         unsafe {
             esp_rom_isr_mask(USB_IRQ_MASK);
@@ -167,25 +243,68 @@ fn attach() -> Option<(P4RomCdcTx, CdcRxMask)> {
     })
 }
 
-fn send(port: &mut P4RomCdcTx, frame: &[u8]) -> bool {
+fn cycle_count() -> u32 {
+    let count;
+    unsafe { asm!("csrr {0}, mcycle", out(reg) count, options(nostack)) };
+    count
+}
+
+fn send(
+    port: &mut P4RomCdcTx,
+    coord: &mut RxIrqCoordinator,
+    mask: &mut CdcRxMask,
+    ticks_per_us: u32,
+    frame: &[u8],
+) -> bool {
     let mut queue = TxQueue::<64>::new();
     if queue.enqueue(frame) != frame.len() {
         return false;
     }
-    for _ in 0..TX_ATTEMPTS {
+    let start = cycle_count();
+    let budget = ticks_per_us * TX_TIMEOUT_US;
+    let retry = ticks_per_us * TX_RETRY_US;
+    let outcome = loop {
+        if cycle_count().wrapping_sub(start) >= budget {
+            break TxOutcome::Timeout;
+        }
         let outcome = without_local_interrupts(|| {
-            if SIGNAL.link_change_pending() {
+            if SIGNAL.link_change_pending()
+                && coord.resolve_line_change(&SIGNAL, mask) == LineDecision::ResyncRequired
+            {
                 return None;
             }
             Some(queue.pump_once(port))
         });
         match outcome {
-            Some(Ok(PumpResult::Progress { remaining: 0, .. })) => return true,
-            Some(Ok(PumpResult::Progress { .. } | PumpResult::Backpressure { .. })) => {}
-            _ => return false,
+            Some(Ok(PumpResult::Progress { remaining: 0, .. })) => break TxOutcome::Sent,
+            Some(Ok(PumpResult::Progress { .. })) => {}
+            Some(Ok(PumpResult::Backpressure { .. })) => {
+                // Give DWC interrupts time to advance TX before trying again.
+                let wait = cycle_count();
+                while cycle_count().wrapping_sub(wait) < retry
+                    && cycle_count().wrapping_sub(start) < budget
+                {
+                    core::hint::spin_loop();
+                }
+            }
+            Some(_) => break TxOutcome::FifoError,
+            None => break TxOutcome::LinkInvalid,
         }
+    };
+    let sent = matches!(outcome, TxOutcome::Sent);
+    let counts = queue.counters();
+    unsafe {
+        ptr::write_volatile(
+            ptr::addr_of_mut!(P4_USB_TX_DIAGNOSTICS),
+            TxDiagnostics {
+                outcome,
+                calls: counts.fill_calls as u32,
+                accepted: counts.accepted_bytes as u32,
+                backpressure: counts.zero_accepts as u32,
+            },
+        );
     }
-    false
+    sent
 }
 
 #[unsafe(no_mangle)]
@@ -195,23 +314,50 @@ pub extern "C" fn rust_entry() -> ! {
     };
     // Allow the ROM DWC handler to deliver the reply and manage the link.
     unsafe { asm!("csrsi mstatus, 8", options(nostack)) };
-    if !send(&mut port, b"\xc0OHAI\xc0") {
+    let ticks_per_us = unsafe { esp_rom_get_cpu_ticks_per_us() };
+    let first_cycle = cycle_count();
+    if !(1..=1000).contains(&ticks_per_us) || cycle_count() == first_cycle {
         stop_transport();
     }
     let mut coord = RxIrqCoordinator::new();
+    if !send(
+        &mut port,
+        &mut coord,
+        &mut mask,
+        ticks_per_us,
+        b"\xc0OHAI\xc0",
+    ) {
+        stop_transport();
+    }
     let mut pump = RxPump::new();
     let mut frames = DoubleBuffer::<64>::new();
     loop {
         let service = without_local_interrupts(|| {
             coord.service_once(&SIGNAL, &mut mask, &mut port, &mut pump, &mut frames)
         });
-        // Bring-up deliberately ends the session on any line change.
-        if matches!(service, Err(_) | Ok(ServiceResult::LinkChange)) {
-            stop_transport();
+        match service {
+            Ok(ServiceResult::LinkChange) => {
+                let decision =
+                    without_local_interrupts(|| coord.resolve_line_change(&SIGNAL, &mut mask));
+                if decision == LineDecision::ResyncRequired {
+                    stop_transport();
+                }
+                continue;
+            }
+            Err(_) => stop_transport(),
+            _ => {}
         }
         match frames.poll() {
             Poll::Ready { index, .. } => {
-                if frames.frame(index) == Some(b"PING") && !send(&mut port, b"\xc0PONG\xc0") {
+                if frames.frame(index) == Some(b"PING")
+                    && !send(
+                        &mut port,
+                        &mut coord,
+                        &mut mask,
+                        ticks_per_us,
+                        b"\xc0PONG\xc0",
+                    )
+                {
                     stop_transport();
                 }
                 frames.release_selected();

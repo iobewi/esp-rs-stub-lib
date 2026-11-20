@@ -35,12 +35,26 @@ python tools/elf2stub.py \
    and repeat the upload and both round trips. Record the exact revision,
    USB identity, artifact SHA-256 and results. Loading is into RAM only.
 
-The image deliberately stops servicing traffic on any CDC line change or a
-transport error. Initial bring-up uses an external reset to establish a
-new session. The line-change and rearm model is tested on the host; the
-native ROM interrupt dispatch, same-hart exclusion around ROM calls and
-pending RX delivery still require this ECO7 trial. The test exchanges no
-flash data and does not establish throughput.
+The CDC callback samples RTS and latches a falling edge or failed status
+read. Foreground resolves the event via `RxLineState` with hart 0
+interrupts excluded through inspection and acknowledgement. Benign changes
+preserve the session and buffered RX data. A falling edge, invalid device
+or transport error stops the probe until an external reset.
+
+Each TX reply has a 250 ms retry window based on `mcycle` and the ROM's
+CPU ticks per microsecond. A zero acceptance leaves interrupts enabled for
+a backoff of up to 100 µs before reoffering pending bytes. An indeterminate
+result stops TX immediately. This controls retries between ROM calls and
+cannot preempt a stalled ROM call. The last TX outcome is available in the
+RAM symbol `P4_USB_TX_DIAGNOSTICS` as four 32-bit words: outcome (1 sent,
+2 timeout, 3 FIFO error, 4 invalid link), FIFO calls, accepted bytes, and
+zero-acceptance calls.
+
+CI validates the ROM symbols and decoded call targets in the linked
+candidate, including the DWC handler pointer, and checks linked reads and
+writes for the four ESP-IDF P4 v3 MMIO addresses. Native ROM interrupt
+dispatch, same-hart exclusion and pending RX delivery still require the
+ECO7 trial. The test exchanges no flash data and does not establish throughput.
 
 ## Source reference
 

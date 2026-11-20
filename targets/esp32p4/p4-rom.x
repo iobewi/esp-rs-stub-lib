@@ -22,3 +22,5 @@ PROVIDE(esp_rom_cdc_acm_irq_rx_enable = 0x4FC008F0);
 PROVIDE(esp_rom_cdc_acm_irq_rx_disable = 0x4FC008F4);
 PROVIDE(esp_rom_cdc_acm_irq_callback_set = 0x4FC00900);
 PROVIDE(esp_rom_usb_dw_isr_handler = 0x4FC00974);
+PROVIDE(esp_rom_get_cpu_ticks_per_us = 0x4FC00040);
+PROVIDE(esp_rom_cdc_acm_line_ctrl_get = 0x4FC00908);
