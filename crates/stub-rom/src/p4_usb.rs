@@ -66,9 +66,8 @@ impl FifoFill for P4RomCdcTx {
         };
         // SAFETY: construction requires a stable, valid ROM session and a
         // single owner; this method preserves the borrow for the call only.
-        let result = unsafe {
-            esp_rom_cdc_acm_fifo_fill(self.device.as_ptr(), bytes.as_ptr(), len)
-        };
+        let result =
+            unsafe { esp_rom_cdc_acm_fifo_fill(self.device.as_ptr(), bytes.as_ptr(), len) };
         classify_rom_result(result)
     }
 }
@@ -85,9 +84,6 @@ mod tests {
 
     #[test]
     fn negative_rom_return_is_never_assumed_retryable() {
-        assert_eq!(
-            classify_rom_result(-5),
-            Err(FifoFailure::Indeterminate(-5))
-        );
+        assert_eq!(classify_rom_result(-5), Err(FifoFailure::Indeterminate(-5)));
     }
 }
