@@ -14,39 +14,34 @@ global_asm!(
     .type esp_main, @function
 esp_main:
     la sp, __stack_top
-    call rust_entry
+    la t0, __bss_start
+    la t1, __bss_end
 1:
+    bgeu t0, t1, 2f
+    sw zero, 0(t0)
+    addi t0, t0, 4
     j 1b
+2:
+    call rust_entry
+3:
+    j 3b
 "#
 );
 
-// Explicitly retain small initialization sentinels to exercise both JSON
-// .data upload and local .bss clearing in the foundation linker contract.
+// Dedicated input sections are retained explicitly by KEEP in p4-memory.x.
+// The ELF-to-JSON converter validates the actual linked symbols and bytes.
 #[used]
-#[unsafe(link_section = ".data")]
-static INITIALIZED_SENTINEL: u32 = 0x5354_5542;
+#[unsafe(no_mangle)]
+#[unsafe(link_section = ".data.foundation_sentinel")]
+pub static INITIALIZED_SENTINEL: u32 = 0x5354_5542;
 
 #[used]
-#[unsafe(link_section = ".bss")]
-static mut ZEROED_SENTINEL: [u32; 4] = [0; 4];
-
-unsafe extern "C" {
-    static __bss_start: u8;
-    static __bss_end: u8;
-}
+#[unsafe(no_mangle)]
+#[unsafe(link_section = ".bss.foundation_sentinel")]
+pub static mut ZEROED_SENTINEL: [u32; 4] = [0; 4];
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_entry() -> ! {
-    // SAFETY: Symbols are defined by p4-memory.x, word-aligned, and describe
-    // only the dedicated NOLOAD .bss section in writable DRAM.
-    unsafe {
-        let mut cursor = core::ptr::addr_of!(__bss_start) as *mut u32;
-        let end = core::ptr::addr_of!(__bss_end) as usize;
-        while (cursor as usize) < end {
-            core::ptr::write_volatile(cursor, 0);
-            cursor = cursor.add(1);
-        }
-    }
     loop {
         core::hint::spin_loop();
     }

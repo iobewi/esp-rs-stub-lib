@@ -28,6 +28,9 @@ impl AddressRange {
     }
 
     pub const fn overlaps(self, other: Self) -> bool {
+        if self.size == 0 || other.size == 0 {
+            return false;
+        }
         match (self.end(), other.end()) {
             (Some(end), Some(other_end)) => self.start < other_end && other.start < end,
             _ => false,
@@ -65,5 +68,24 @@ mod tests {
         };
         assert_eq!(r.end(), None);
         assert!(!r.contains(u32::MAX));
+    }
+
+    #[test]
+    fn empty_ranges_never_overlap() {
+        let r = AddressRange {
+            start: 0x1000,
+            size: 0x100,
+        };
+        assert!(!r.overlaps(AddressRange {
+            start: 0x1080,
+            size: 0,
+        }));
+        assert!(!AddressRange {
+            start: 0x1080,
+            size: 0,
+        }
+        .overlaps(r));
+        assert!(!AddressRange { start: 0, size: 0 }
+            .overlaps(AddressRange { start: 0, size: 0 }));
     }
 }

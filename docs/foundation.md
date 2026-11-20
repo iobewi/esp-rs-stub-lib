@@ -14,7 +14,9 @@ ESP32-P4 revision 3.x uses 0x4FF50000/0x4500 IRAM, and
 0x4FF60000/0x18000 DRAM in the C reference.
 This prototype reserves the final 0x1000 DRAM bytes for its own stack.
 The section loader sends `.text` and `.data`, never `.bss`.
-The entry trampoline sets the stack before calling Rust; Rust clears BSS.
+The assembly entry initializes SP and zeroes BSS before branching into Rust.
+The linker retains dedicated data/BSS sentinels with KEEP, and the converter
+verifies the final ELF symbol addresses, lengths, and initialized bytes.
 
 ## Build (Rust toolchain required)
 

@@ -27,6 +27,7 @@ SECTIONS
   .bss (NOLOAD) : ALIGN(4)
   {
     __bss_start = .;
+    KEEP(*(.bss.foundation_sentinel))
     *(.bss .bss.*)
     *(COMMON)
     . = ALIGN(4);
@@ -35,6 +36,7 @@ SECTIONS
 
   .data : ALIGN(4)
   {
+    KEEP(*(.data.foundation_sentinel))
     *(.sdata .sdata.*)
     *(.data .data.*)
     . = ALIGN(4);
@@ -48,6 +50,9 @@ SECTIONS
   }
 }
 
+ASSERT((__bss_start & 3) == 0 && (__bss_end & 3) == 0, "BSS must be word-aligned");
+ASSERT(SIZEOF(.bss) >= 16, "BSS sentinel was dropped");
+ASSERT(SIZEOF(.data) >= 4, "Data sentinel was dropped");
 ASSERT(__bss_end <= ORIGIN(DRAM) + LENGTH(DRAM), "BSS exceeds P4 DRAM");
 ASSERT(SIZEOF(.data) + ADDR(.data) <= __stack_bottom, "Data overlaps reserved stack");
 ASSERT(ADDR(.text) + SIZEOF(.text) <= ORIGIN(IRAM) + LENGTH(IRAM), "Text exceeds P4 IRAM");
