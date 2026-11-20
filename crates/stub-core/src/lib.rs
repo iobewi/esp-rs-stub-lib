@@ -5,6 +5,7 @@
 
 pub mod rx;
 pub mod slip;
+pub mod tx;
 
 pub const SLIP_END: u8 = 0xC0;
 pub const SLIP_ESC: u8 = 0xDB;
