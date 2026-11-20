@@ -38,10 +38,6 @@ class RomLinkDisassemblyTests(unittest.TestCase):
         self.assertFalse(find_rom_call("esp_rom_cdc_acm_fifo_fill = 0x4FC008D0"))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class RomRxLinkTargetsTests(unittest.TestCase):
     def test_rx_count_and_read_targets(self):
         # 0x4ff50080 + (-0x34f << 12) - 0x7ac = 0x4fc008d4
@@ -49,7 +45,7 @@ class RomRxLinkTargetsTests(unittest.TestCase):
 4ff50080:    auipc ra, 0xffcb1
 4ff50084:    jalr -0x7ac(ra) <esp_rom_cdc_acm_rx_fifo_cnt>
 4ff50088:    auipc ra, 0xffcb1
-4ff5008c:    jalr -0x7a0(ra) <esp_rom_cdc_acm_fifo_read>
+4ff5008c:    jalr -0x7b0(ra) <esp_rom_cdc_acm_fifo_read>
 """
         self.assertTrue(find_rom_call(code, ROM_RX_COUNT))
         self.assertTrue(find_rom_call(code, ROM_RX_READ))
