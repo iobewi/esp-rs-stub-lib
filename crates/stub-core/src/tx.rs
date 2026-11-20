@@ -150,9 +150,11 @@ impl<const N: usize> TxQueue<N> {
 
     /// Queue as many bytes as available space permits, preserving byte order.
     ///
-    /// A returned count less than `input.len()` is explicit backpressure; the
-    /// caller retains and retries the *unaccepted input* itself. Nothing is
-    /// silently discarded.
+    /// A returned count less than `input.len()` indicates backpressure when
+    /// the queue is ready. A return of zero can also mean the queue is locked
+    /// in `TxState::ResyncRequired`; callers must check `state()` to tell a
+    /// full buffer from a locked queue. They retain all unaccepted input.
+    /// Nothing is silently discarded.
     pub fn enqueue(&mut self, input: &[u8]) -> usize {
         if self.state != TxState::Ready {
             return 0;
