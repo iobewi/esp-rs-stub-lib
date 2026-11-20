@@ -299,3 +299,62 @@ fn repeated_notifications_coalesce_without_dropping_new_wakeup() {
     );
     assert_eq!(fifo.calls, 2);
 }
+
+struct WakeOnUnmask<'a> {
+    signal: &'a RxIrqSignal,
+    masked: bool,
+    notify_once: bool,
+    unmasks: usize,
+}
+
+impl RxIrqMask for WakeOnUnmask<'_> {
+    fn mask_rx(&mut self) {
+        self.masked = true;
+    }
+
+    fn unmask_rx(&mut self) {
+        self.unmasks += 1;
+        self.masked = false;
+        if self.notify_once {
+            // Simulate the hardware immediately raising RX on unmask:
+            // the callback masks RX, then publishes its notification.
+            self.masked = true;
+            self.signal.notify_rx_masked();
+            self.notify_once = false;
+        }
+    }
+}
+
+#[test]
+fn interrupt_racing_with_first_unmask_is_not_lost() {
+    let irq = RxIrqSignal::new();
+    let mut hw = WakeOnUnmask {
+        signal: &irq,
+        masked: true,
+        notify_once: true,
+        unmasks: 0,
+    };
+    let mut coordinator = RxIrqCoordinator::new();
+    let mut pump = RxPump::new();
+    let mut frames = DoubleBuffer::<8>::new();
+    let mut fifo = Fifo::new(&[0xC0, 0x42, 0xC0]);
+
+    assert_eq!(
+        coordinator.service_once(&irq, &mut hw, &mut fifo, &mut pump, &mut frames),
+        Ok(ServiceResult::Idle)
+    );
+    assert_eq!(hw.unmasks, 1);
+    assert!(hw.masked);
+    assert!(coordinator.is_masked());
+    assert_eq!(fifo.calls, 0);
+
+    assert_eq!(
+        coordinator.service_once(&irq, &mut hw, &mut fifo, &mut pump, &mut frames),
+        Ok(ServiceResult::Progress { received: 3 })
+    );
+    assert_eq!(fifo.calls, 1);
+    assert_eq!(frames.poll(), Poll::Ready { index: 0, len: 1 });
+    assert_eq!(frames.frame(0), Some(&[0x42][..]));
+    assert!(hw.masked);
+    assert_eq!(hw.unmasks, 1);
+}
