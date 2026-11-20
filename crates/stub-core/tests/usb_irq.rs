@@ -606,12 +606,25 @@ fn second_rts_event_during_quiescence_cannot_be_acknowledged_as_benign() {
     assert!(hw.quiesced);
     assert!(hw.masked);
     assert!(signal.link_change_pending());
+    assert!(coordinator.requires_resync());
+
+    // The physical line later becomes stable, but no new inspection may
+    // unlock the *previous* session or acknowledge the reset notification.
+    hw.line = LineDecision::Benign;
+    assert_eq!(
+        coordinator.resolve_line_change(&signal, &mut hw),
+        LineDecision::ResyncRequired
+    );
+    assert_eq!(hw.inspections, 1);
+    assert!(signal.link_change_pending());
+    assert!(coordinator.requires_resync());
     assert_eq!(
         coordinator.service_once(&signal, &mut hw, &mut fifo, &mut pump, &mut frames),
-        Ok(ServiceResult::LinkChange)
+        Err(ServiceError::ResyncRequired)
     );
     assert_eq!(fifo.calls, 0);
     assert_eq!(pump.pending(), 0);
+    assert!(hw.masked);
 }
 
 #[test]
@@ -646,4 +659,53 @@ fn benign_inspection_under_quiescence_clears_line_flag_without_discarding_rx() {
     assert!(!signal.link_change_pending());
     assert_eq!(pump.pending(), 3);
     assert_eq!(frames.frame(0), Some(&[0x11][..]));
+}
+
+#[test]
+fn resync_latch_clears_only_after_explicit_transport_recovery() {
+    let mut signal = RxIrqSignal::new();
+    signal.notify_line_state_changed();
+    let mut hw = FakeMask {
+        masked: true,
+        line_decision: LineDecision::ResyncRequired,
+        ..Default::default()
+    };
+    let mut coordinator = RxIrqCoordinator::new();
+    let mut pump = RxPump::new();
+    let mut frames = DoubleBuffer::<8>::new();
+    let mut fifo = Fifo::new(&[0xC0, 0x66, 0xC0]);
+
+    assert_eq!(
+        coordinator.resolve_line_change(&signal, &mut hw),
+        LineDecision::ResyncRequired
+    );
+    assert!(coordinator.requires_resync());
+    assert!(signal.link_change_pending());
+    assert_eq!(hw.unmasks, 0);
+
+    hw.line_decision = LineDecision::Benign;
+    assert_eq!(
+        coordinator.resolve_line_change(&signal, &mut hw),
+        LineDecision::ResyncRequired
+    );
+    assert!(signal.link_change_pending());
+    assert_eq!(
+        coordinator.service_once(&signal, &mut hw, &mut fifo, &mut pump, &mut frames),
+        Err(ServiceError::ResyncRequired)
+    );
+    assert_eq!(fifo.calls, 0);
+    assert_eq!(hw.unmasks, 0);
+
+    // External code has quiesced callbacks, discarded stale hardware FIFO,
+    // and established a new session. This is the only reset path.
+    fifo.cursor = fifo.bytes.len();
+    coordinator.reset_after_resync(&mut signal, &mut hw, &mut pump, &mut frames);
+    assert!(!coordinator.requires_resync());
+    assert!(!signal.link_change_pending());
+    assert!(hw.masked);
+    assert_eq!(
+        coordinator.service_once(&signal, &mut hw, &mut fifo, &mut pump, &mut frames),
+        Ok(ServiceResult::Idle)
+    );
+    assert_eq!(hw.unmasks, 1);
 }

@@ -103,3 +103,14 @@ is therefore included in the inspection, not silently acknowledged on a
 stale benign state. An invalid/uncertain session remains latched for reset.
 This is a required platform contract, not evidence that the ECO7 ROM
 already supports such exclusion.
+
+## P2 recovery latch: a stable line cannot undo a detected reset
+
+A `LineDecision::ResyncRequired` sets `RxIrqCoordinator::fault` under
+CDC callback quiescence. Subsequent calls to `resolve_line_change` cannot
+clear the line notification or reinterpret an earlier reset as benign,
+even if RTS has returned to a stable level. `service_once` remains blocked
+and keeps RX masked. Only `reset_after_resync`, after **external** session
+re-establishment and stale FIFO disposal, clears this latch together with
+the software RX buffers. A regression test covers reset detected, physical
+line subsequently stable, repeated inspection rejected, and explicit reset.

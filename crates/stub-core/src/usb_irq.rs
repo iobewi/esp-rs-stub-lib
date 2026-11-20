@@ -171,8 +171,9 @@ impl RxIrqCoordinator {
     /// First mask RX, then synchronously quiesce ALL CDC callbacks; only
     /// afterwards inspect the line and session. If benign, clear ONLY the
     /// line flag while callbacks are still quiesced, retaining RX events,
-    /// SLIP frames, pump bytes and drain state. On reset/uncertainty, keep
-    /// the event latched; external resynchronization is required.
+    /// SLIP frames, pump bytes and drain state. On reset/uncertainty, latch
+    /// the coordinator fault and keep the event pending until an explicit
+    /// reset_after_resync() following external transport recovery.
     ///
     /// The platform MUST keep line callbacks excluded from return of
     /// quiesce_cdc_callbacks() until this method has cleared the flag.
@@ -183,10 +184,19 @@ impl RxIrqCoordinator {
         mask: &mut M,
     ) -> LineDecision {
         self.mask(mask);
+        // Once a reset/detach was detected, a later benign line level
+        // cannot establish continuity with the previous USB session.
+        // Never clear the notification or inspect a new line state until
+        // reset_after_resync() has completed external recovery.
+        if self.fault {
+            return LineDecision::ResyncRequired;
+        }
         mask.quiesce_cdc_callbacks();
         let decision = mask.inspect_line_state_quiesced();
         if decision == LineDecision::Benign {
             signal.acknowledge_line_change_masked();
+        } else {
+            self.fault = true;
         }
         decision
     }
