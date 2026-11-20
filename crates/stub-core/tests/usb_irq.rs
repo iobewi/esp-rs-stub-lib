@@ -93,7 +93,9 @@ fn irq_never_touches_rx_buffers_and_rearms_only_after_drain() {
     frames.release_selected();
     assert_eq!(frames.poll(), Poll::Ready { index: 1, len: 1 });
     assert_eq!(frames.frame(1), Some(&[0x22][..]));
-    assert!(!frames.is_armed());
+    // A free slot is already rearmed by poll(), but interrupts remain
+    // masked until the current ROM FIFO is confirmed empty.
+    assert!(frames.is_armed());
     assert_eq!(hw.unmasks, 0);
     frames.release_selected();
     assert_eq!(frames.poll(), Poll::Idle);
@@ -117,6 +119,10 @@ fn no_notification_means_no_fifo_read() {
     assert_eq!(step(&mut coordinator, &irq, &mut hw, &mut fifo, &mut pump, &mut frames),
         Ok(ServiceResult::Idle));
     assert_eq!(fifo.calls, 0);
+    // The first idle foreground pass arms RX; otherwise no first IRQ
+    // could ever arrive after startup with hardware initially masked.
+    assert_eq!(hw.unmasks, 1);
+    assert!(!hw.masked);
 }
 
 #[test]

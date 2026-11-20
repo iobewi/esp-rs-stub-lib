@@ -164,10 +164,27 @@ impl RxIrqCoordinator {
             self.draining = true;
         }
         if !self.draining && pump.pending() == 0 {
+            // Bootstrap: startup requires RX masked until the callback and
+            // session are installed, but the first foreground iteration
+            // must arm an idle, empty receiver to receive the first IRQ.
+            if self.masked {
+                mask.unmask_rx();
+                self.masked = false;
+                if signal.pending.load(Ordering::Acquire)
+                    || signal.link_change_pending()
+                {
+                    self.mask(mask);
+                }
+            }
             return Ok(ServiceResult::Idle);
         }
 
         self.mask(mask);
+        // A line event may have arrived before the synchronous mask
+        // completed; never read from a session with pending line changes.
+        if signal.link_change_pending() {
+            return Ok(ServiceResult::LinkChange);
+        }
         let outcome = match pump.pump_once(source, frames) {
             Ok(result) => result,
             Err(error) => {

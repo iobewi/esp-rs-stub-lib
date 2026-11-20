@@ -56,3 +56,9 @@ reset events, and coalesced notifications under Miri.
 5. Add read-only IDLab measurements and verify physical FIFO wakeups
    under backpressure, packet coalescing and rapid reconnect.
 6. Only after successful qualification activate the stub transport.
+
+Startup requires a fully configured but masked ROM callback. The first
+foreground `service_once()` unmasks RX when the receiver is empty,
+armed and has no pending link change; otherwise the first IRQ could
+never occur. A notification racing with unmask is retained, and an
+observed link-change event prevents ROM FIFO access.
