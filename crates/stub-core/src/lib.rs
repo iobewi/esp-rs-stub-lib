@@ -3,6 +3,9 @@
 //! Portable, pure definitions for a RAM-resident flasher stub.
 //! Hardware access and protocol implementation belong in later PRs.
 
+pub mod rx;
+pub mod slip;
+
 pub const SLIP_END: u8 = 0xC0;
 pub const SLIP_ESC: u8 = 0xDB;
 pub const SLIP_ESC_END: u8 = 0xDC;
