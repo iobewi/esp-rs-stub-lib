@@ -85,7 +85,6 @@ mod tests {
             size: 0,
         }
         .overlaps(r));
-        assert!(!AddressRange { start: 0, size: 0 }
-            .overlaps(AddressRange { start: 0, size: 0 }));
+        assert!(!AddressRange { start: 0, size: 0 }.overlaps(AddressRange { start: 0, size: 0 }));
     }
 }
