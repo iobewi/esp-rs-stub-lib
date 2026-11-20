@@ -72,7 +72,6 @@ impl FifoFill for P4RomCdcTx {
     }
 }
 
-
 impl stub_core::usb_rx::RxSource for P4RomCdcTx {
     /// Poll the ROM USB CDC RX FIFO without installing an ISR.
     ///

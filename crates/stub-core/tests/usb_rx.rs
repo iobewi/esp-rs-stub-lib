@@ -48,9 +48,15 @@ fn rx_burst_is_bounded_and_slip_frame_survives_multiple_reads() {
     let mut sim = SimRx::new(&payload, usize::MAX);
     let mut pump = RxPump::new();
     let mut rx = DoubleBuffer::<128>::new();
-    assert_eq!(pump.pump_once(&mut sim, &mut rx), Ok(RxPumpResult::Progress { received: 64 }));
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Ok(RxPumpResult::Progress { received: 64 })
+    );
     assert_eq!(rx.poll(), Poll::Idle);
-    assert_eq!(pump.pump_once(&mut sim, &mut rx), Ok(RxPumpResult::Progress { received: 38 }));
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Ok(RxPumpResult::Progress { received: 38 })
+    );
     assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 100 });
     assert_eq!(rx.frame(0).unwrap().len(), 100);
     assert_eq!(sim.calls, 2);
@@ -81,7 +87,10 @@ fn indeterminate_read_poison_prevents_further_reads_and_replay() {
     );
     assert!(pump.requires_resync());
     assert_eq!(sim.pos, 2);
-    assert_eq!(pump.pump_once(&mut sim, &mut rx), Err(RxPumpError::ResyncRequired));
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Err(RxPumpError::ResyncRequired)
+    );
     assert_eq!(sim.calls, 1);
     // An external transport reset must first discard residual FIFO bytes.
     sim.pos = sim.bytes.len();
@@ -116,7 +125,10 @@ fn short_reads_preserve_escape_sequences() {
     let mut pump = RxPump::new();
     let mut rx = DoubleBuffer::<8>::new();
     for _ in 0..4 {
-        assert_eq!(pump.pump_once(&mut sim, &mut rx), Ok(RxPumpResult::Progress { received: 1 }));
+        assert_eq!(
+            pump.pump_once(&mut sim, &mut rx),
+            Ok(RxPumpResult::Progress { received: 1 })
+        );
     }
     assert_eq!(rx.poll(), Poll::Ready { index: 0, len: 1 });
     assert_eq!(rx.frame(0), Some(&[0xC0][..]));
