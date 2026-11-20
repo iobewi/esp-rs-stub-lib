@@ -6,6 +6,7 @@
 pub mod rx;
 pub mod slip;
 pub mod tx;
+pub mod usb_irq;
 pub mod usb_rx;
 
 pub const SLIP_END: u8 = 0xC0;

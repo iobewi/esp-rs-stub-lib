@@ -78,10 +78,13 @@ impl stub_core::usb_rx::RxSource for P4RomCdcTx {
     /// Returns at most the caller's buffer length, with one FIFO read at
     /// most. A nonpositive count performs no FIFO read (negative is poison).
     /// This shares the same ROM session safety preconditions as TX.
-    fn read(&mut self, bytes: &mut [u8]) -> Result<usize, stub_core::usb_rx::RxFailure> {
-        use stub_core::usb_rx::RxFailure;
+    fn read(
+        &mut self,
+        bytes: &mut [u8],
+    ) -> Result<stub_core::usb_rx::RxRead, stub_core::usb_rx::RxFailure> {
+        use stub_core::usb_rx::{RxFailure, RxRead};
         if bytes.is_empty() {
-            return Ok(0);
+            return Ok(RxRead::NoProgress);
         }
         // SAFETY: the P4RomCdcTx constructor's session/exclusivity
         // preconditions also cover RX FIFO calls on this ROM device.
@@ -90,7 +93,7 @@ impl stub_core::usb_rx::RxSource for P4RomCdcTx {
             return Err(RxFailure::Indeterminate(available));
         }
         if available == 0 {
-            return Ok(0);
+            return Ok(RxRead::Empty);
         }
         let offered = core::cmp::min(bytes.len(), available as usize);
         let offered = core::cmp::min(offered, i32::MAX as usize);
@@ -113,7 +116,12 @@ impl stub_core::usb_rx::RxSource for P4RomCdcTx {
                 returned: received,
             });
         }
-        Ok(received)
+        if received == 0 {
+            // RX count was positive; never mistake a non-progressing FIFO
+            // read for confirmed emptiness.
+            return Ok(RxRead::NoProgress);
+        }
+        Ok(RxRead::Data(received))
     }
 }
 

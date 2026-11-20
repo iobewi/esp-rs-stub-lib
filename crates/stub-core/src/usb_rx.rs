@@ -18,24 +18,36 @@ pub enum RxFailure {
     InvalidCount { offered: usize, returned: usize },
 }
 
+/// A FIFO occupancy observation is distinct from the progress of a read.
+/// Only `Empty` guarantees a source-observed empty FIFO.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RxRead {
+    /// The source checked FIFO occupancy and confirmed it was empty.
+    Empty,
+    /// Data was reported available, but the attempted read consumed zero bytes.
+    NoProgress,
+    /// The source copied exactly this many bytes into the provided buffer.
+    Data(usize),
+}
+
 pub trait RxSource {
-    /// Copies up to `bytes.len()` bytes into the slice. No retained borrow.
-    /// An error is conservative: zero-consumption cannot be presumed.
-    fn read(&mut self, bytes: &mut [u8]) -> Result<usize, RxFailure>;
+    /// Perform one bounded receive attempt. The source MUST return `Empty`
+    /// only if it has actually confirmed an empty FIFO. A zero-byte read
+    /// following positive occupancy MUST return `NoProgress`, not `Empty`.
+    fn read(&mut self, bytes: &mut [u8]) -> Result<RxRead, RxFailure>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RxPumpResult {
+    /// A source-confirmed empty FIFO, permitting an RX unmask when armed.
     Empty,
+    /// A read with positive occupancy made no progress; keep RX masked.
+    NoProgress,
     /// Receiver is disarmed. No ROM call and no bytes discarded.
-    Paused {
-        pending: usize,
-    },
+    Paused { pending: usize },
     /// Number of bytes fetched from the source on this call. May be zero if
     /// previously buffered bytes were drained after a receiver rearm.
-    Progress {
-        received: usize,
-    },
+    Progress { received: usize },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -125,17 +137,16 @@ impl RxPump {
 
         self.calls = self.calls.saturating_add(1);
         match source.read(&mut self.batch) {
-            Ok(count) if count <= RX_BURST => {
-                if count == 0 {
-                    return Ok(RxPumpResult::Empty);
-                }
+            Ok(RxRead::Empty) => Ok(RxPumpResult::Empty),
+            Ok(RxRead::NoProgress) => Ok(RxPumpResult::NoProgress),
+            Ok(RxRead::Data(count)) if count > 0 && count <= RX_BURST => {
                 self.cursor = 0;
                 self.end = count;
                 self.received_bytes = self.received_bytes.saturating_add(count as u64);
                 self.drain(buffer);
                 Ok(RxPumpResult::Progress { received: count })
             }
-            Ok(returned) => {
+            Ok(RxRead::Data(returned)) => {
                 self.poisoned = true;
                 Err(RxPumpError::Source(RxFailure::InvalidCount {
                     offered: RX_BURST,
