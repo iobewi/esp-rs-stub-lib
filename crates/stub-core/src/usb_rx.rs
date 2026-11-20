@@ -44,14 +44,10 @@ pub enum RxPumpResult {
     /// A read with positive occupancy made no progress; keep RX masked.
     NoProgress,
     /// Receiver is disarmed. No ROM call and no bytes discarded.
-    Paused {
-        pending: usize,
-    },
+    Paused { pending: usize },
     /// Number of bytes fetched from the source on this call. May be zero if
     /// previously buffered bytes were drained after a receiver rearm.
-    Progress {
-        received: usize,
-    },
+    Progress { received: usize },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

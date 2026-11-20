@@ -232,7 +232,10 @@ fn positive_fifo_occupancy_with_zero_read_is_not_empty() {
     sim.override_result = Some(Ok(RxRead::NoProgress));
     let mut pump = RxPump::new();
     let mut rx = DoubleBuffer::<8>::new();
-    assert_eq!(pump.pump_once(&mut sim, &mut rx), Ok(RxPumpResult::NoProgress));
+    assert_eq!(
+        pump.pump_once(&mut sim, &mut rx),
+        Ok(RxPumpResult::NoProgress)
+    );
     assert_eq!(sim.pos, 0);
     assert_eq!(pump.pending(), 0);
     sim.override_result = None;

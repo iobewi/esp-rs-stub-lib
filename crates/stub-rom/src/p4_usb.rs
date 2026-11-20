@@ -78,7 +78,10 @@ impl stub_core::usb_rx::RxSource for P4RomCdcTx {
     /// Returns at most the caller's buffer length, with one FIFO read at
     /// most. A nonpositive count performs no FIFO read (negative is poison).
     /// This shares the same ROM session safety preconditions as TX.
-    fn read(&mut self, bytes: &mut [u8]) -> Result<stub_core::usb_rx::RxRead, stub_core::usb_rx::RxFailure> {
+    fn read(
+        &mut self,
+        bytes: &mut [u8],
+    ) -> Result<stub_core::usb_rx::RxRead, stub_core::usb_rx::RxFailure> {
         use stub_core::usb_rx::{RxFailure, RxRead};
         if bytes.is_empty() {
             return Ok(RxRead::NoProgress);
