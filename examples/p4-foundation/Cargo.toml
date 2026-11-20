@@ -1,0 +1,11 @@
+[package]
+name = "p4-foundation"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "p4-foundation"
+path = "src/main.rs"
+test = false
+bench = false
