@@ -14,8 +14,15 @@ The `stub-core` crate provides:
   changes the slot states. Newly received errors have priority; release
   always acts on the latest poll selection.
 
-The reference is Espressif `esp-flasher-stub/src/slip.c`,
-`frame_buffer.c`, and `transport.c`. Frame capacity is 16,647 bytes.
+The codec and double-buffer logic are Rust adaptations of Espressif's
+[`slip.c`](https://github.com/espressif/esp-flasher-stub/blob/master/src/slip.c),
+[`frame_buffer.c`](https://github.com/espressif/esp-flasher-stub/blob/master/src/frame_buffer.c)
+and [`frame_buffer.h`](https://github.com/espressif/esp-flasher-stub/blob/master/src/frame_buffer.h).
+The relevant C files contain Espressif copyright notices and an
+`Apache-2.0 OR MIT` license identifier; this project selects MIT and retains
+the upstream copyright and permission notices in
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
+Frame capacity is 16,647 bytes.
 
 **Concurrency boundary:** this API uses exclusive `&mut self` and is
 **not ISR-safe**. It does not claim lock-free access, atomics, DMA-safety,

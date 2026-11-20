@@ -71,9 +71,23 @@ More details: [P4 foundation](docs/foundation.md) and
 - [Espressif esp-stub-lib](https://github.com/espressif/esp-stub-lib)
 - [Espressif esptool-js](https://github.com/espressif/esptool-js)
 
-This is an independent Rust implementation effort; refer to the upstream
-projects for their respective source licenses and hardware documentation.
+### Source attribution
+
+The SLIP codec and RX double-buffer state machine in `stub-core` are a
+**Rust port/adaptation** based on Espressif's C implementation:
+
+- [`esp-flasher-stub/src/slip.c`](https://github.com/espressif/esp-flasher-stub/blob/master/src/slip.c)
+- [`esp-flasher-stub/src/frame_buffer.c`](https://github.com/espressif/esp-flasher-stub/blob/master/src/frame_buffer.c)
+- [`esp-flasher-stub/src/frame_buffer.h`](https://github.com/espressif/esp-flasher-stub/blob/master/src/frame_buffer.h)
+
+The referenced C files carry Espressif copyright notices and are dual-licensed
+under `Apache-2.0 OR MIT`. This repository uses the MIT option for the adapted
+code. See [Espressif attribution and MIT permission notice](THIRD_PARTY_NOTICES.md).
+The Rust implementation changes the ownership and error-handling API; it is
+not an identical translation and has not been integrated with USB interrupts.
 
 ## License
 
 Licensed under the [MIT License](LICENSE). Copyright © 2026 IOBEWI.
+Espressif-originated material retains its respective copyright and permission
+notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and source headers.
