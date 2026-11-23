@@ -41,6 +41,11 @@ call, and retains every partially accepted suffix. P4_USB_TX_DIAGNOSTICS
 records cumulative FIFO calls, accepted bytes and zero accepts after each drain.
 Throughput must be measured on the board.
 
+The stub sends OHAI with USB ready, before any NOR setup. The first flash
+command attaches the NOR and validates JEDEC; a failure is reported in the
+command reply and retained until reset. READ_FLASH reports this failure before
+accepting a stream. RAM downloads and SYNC do not require the NOR.
+
 Validated data blocks are acknowledged before programming. A processing failure
 is latched and returned to the next command. A transfer ends successfully only
 after its declared blocks and bytes have been consumed. A lost link or invalid

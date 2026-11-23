@@ -38,7 +38,7 @@ pub struct Download {
     erased_until: u32,
 }
 impl Download {
-    pub fn begin(kind: u8, p: &[u8], flash: &Nor) -> Result<Self, u8> {
+    pub fn begin(kind: u8, p: &[u8], capacity: u32) -> Result<Self, u8> {
         if !(p.len() == 16 || (kind != 5 && p.len() == 20 && word(p, 16) == 0)) {
             return Err(0xc0);
         }
@@ -54,7 +54,9 @@ impl Download {
                 return Err(0xc0);
             }
         } else {
-            flash.bounds(base, total)?;
+            if base > capacity || total > capacity - base {
+                return Err(0xc0);
+            }
             if base % SECTOR != 0 {
                 return Err(0xc0);
             }
@@ -74,7 +76,7 @@ impl Download {
             ended: false,
         })
     }
-    fn output(&mut self, bytes: &[u8], flash: &Nor) -> Result<(), u8> {
+    fn output(&mut self, bytes: &[u8], flash: Option<&Nor>) -> Result<(), u8> {
         if bytes.len() > (self.total - self.done) as usize {
             return Err(0xc9);
         }
@@ -83,6 +85,7 @@ impl Download {
             unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), addr as *mut u8, bytes.len()) }
         } else {
             if !bytes.is_empty() {
+                let flash = flash.ok_or(0xc4u8)?;
                 let end = (addr + bytes.len() as u32).div_ceil(SECTOR) * SECTOR;
                 if end > self.erased_until {
                     flash.erase(self.erased_until, end - self.erased_until)?;
@@ -124,7 +127,7 @@ impl Download {
         }
         Ok(())
     }
-    pub fn data(&mut self, op: u8, p: &[u8], sum: u32, flash: &Nor) -> Result<(), u8> {
+    pub fn data(&mut self, op: u8, p: &[u8], sum: u32, flash: Option<&Nor>) -> Result<(), u8> {
         self.validate_data(op, p, sum)?;
         let mut data = &p[16..];
         if self.kind == 0x10 {

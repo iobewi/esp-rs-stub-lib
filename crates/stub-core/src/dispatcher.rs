@@ -4,6 +4,9 @@ use crate::protocol::{FlashRead, Request};
 
 pub trait Target {
     fn capacity(&self) -> u32;
+    fn prepare_read(&mut self) -> Result<(), u8> {
+        Ok(())
+    }
     fn busy(&self) -> bool;
     fn attach(&mut self) -> Result<(), u8>;
     fn configure(&mut self, geometry: [u32; 6]) -> Result<(), u8>;
@@ -68,8 +71,9 @@ pub fn dispatch<'a>(
         match (op, p.len()) {
             (8, 36) => reply.count = 8,
             (0xd2, 16) => {
-                reply.after =
-                    AfterReply::Read(FlashRead::parse(p, target.capacity()).map_err(|_| 0xc0u8)?)
+                let read = FlashRead::parse(p, target.capacity()).map_err(|_| 0xc0u8)?;
+                target.prepare_read()?;
+                reply.after = AfterReply::Read(read);
             }
             (0x14, 0) => {
                 target.security_info(&mut reply.data)?;

@@ -23,12 +23,11 @@ fn main() {
     let addr = program::RAM_START;
     let region = unsafe { mmap(addr as *mut u8, 4096, 3, 0x100022, -1, 0) };
     assert_eq!(region, addr as *mut u8);
-    let nor = flash::Nor(vec![0xff; 4096].into());
-    assert!(Download::begin(5, &words(&[8, 1, 8, program::RAM_END - 4]), &nor).is_err());
-    let mut ram = Download::begin(5, &words(&[8, 1, 8, addr]), &nor).unwrap();
+    assert!(Download::begin(5, &words(&[8, 1, 8, program::RAM_END - 4]), 4096).is_err());
+    let mut ram = Download::begin(5, &words(&[8, 1, 8, addr]), 4096).unwrap();
     let mut segment = words(&[8, 0, 0, 0]);
     segment.extend_from_slice(b"RAM-test");
-    ram.data(7, &segment, u32::from(data_checksum(b"RAM-test")), &nor)
+    ram.data(7, &segment, u32::from(data_checksum(b"RAM-test")), None)
         .unwrap();
     assert_eq!(
         unsafe { std::slice::from_raw_parts(region, 8) },
@@ -46,14 +45,14 @@ fn main() {
             block as u32,
             4096,
         ]);
-        let mut state = Download::begin(kind, &begin, &nor).unwrap();
+        let mut state = Download::begin(kind, &begin, 131072).unwrap();
         assert!(state.finish(kind + 2, &words(&[1])).is_err());
         for (seq, data) in input.chunks(block).enumerate() {
             let mut packet = words(&[data.len() as u32, seq as u32, 0, 0]);
             packet.extend_from_slice(data);
             let sum = u32::from(data_checksum(data));
             assert_eq!(state.validate_data(kind + 1, &packet, sum ^ 1), Err(0xc1));
-            state.data(kind + 1, &packet, sum, &nor).unwrap();
+            state.data(kind + 1, &packet, sum, Some(&nor)).unwrap();
             assert!(state.validate_data(kind + 1, &packet, sum).is_err());
         }
         assert_eq!(state.finish(kind + 2, &words(&[1])).unwrap(), None);

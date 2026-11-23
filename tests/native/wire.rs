@@ -11,6 +11,7 @@ use stub_core::{
     protocol::{response, FlashReadIo, ReadError, ReadScratch},
 };
 struct Peer {
+    refuse_next_read: bool,
     nor: Nor,
     download: Option<Download>,
     hash_input: Vec<u8>,
@@ -36,6 +37,13 @@ fn recv() -> io::Result<Vec<u8>> {
     Ok(data)
 }
 impl Target for Peer {
+    fn prepare_read(&mut self) -> Result<(), u8> {
+        if std::mem::take(&mut self.refuse_next_read) {
+            Err(0xc4)
+        } else {
+            Ok(())
+        }
+    }
     fn capacity(&self) -> u32 {
         self.nor.0.borrow().len() as u32
     }
@@ -64,7 +72,7 @@ impl Target for Peer {
     }
     fn begin(&mut self, op: u8, p: &[u8]) -> Result<(), u8> {
         self.download = None;
-        self.download = Some(Download::begin(op, p, &self.nor)?);
+        self.download = Some(Download::begin(op, p, self.capacity())?);
         Ok(())
     }
     fn validate_data(&self, op: u8, p: &[u8], sum: u32) -> Result<(), u8> {
@@ -109,6 +117,7 @@ impl FlashReadIo for Peer {
 }
 fn main() {
     let mut peer = Peer {
+        refuse_next_read: true,
         nor: Nor(vec![0; 262144].into()),
         download: None,
         hash_input: Vec::new(),
@@ -127,11 +136,11 @@ fn main() {
                 payload,
                 checksum,
             } => {
-                if let Err(code) = peer
-                    .download
-                    .as_mut()
-                    .unwrap()
-                    .data(opcode, payload, checksum, &peer.nor)
+                if let Err(code) =
+                    peer.download
+                        .as_mut()
+                        .unwrap()
+                        .data(opcode, payload, checksum, Some(&peer.nor))
                 {
                     pending = Some(code);
                     peer.download = None;

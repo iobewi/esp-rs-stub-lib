@@ -35,6 +35,7 @@ unsafe extern "C" {
     ) -> i32;
 }
 pub const SECTOR: u32 = 4096;
+pub const CAPACITY: u32 = 1 << 25;
 pub struct Nor {
     pub capacity: u32,
     ticks: u32,
@@ -94,7 +95,7 @@ impl Nor {
             return Err(0xc4);
         }
         let device = Self {
-            capacity: 1 << 25,
+            capacity: CAPACITY,
             ticks,
         };
         let id = u32::from_be_bytes([0, jedec[0], jedec[1], jedec[2]]);

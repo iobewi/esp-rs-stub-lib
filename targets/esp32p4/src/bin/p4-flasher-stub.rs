@@ -27,7 +27,7 @@ static mut FRAMES: core::mem::MaybeUninit<Frames> = core::mem::MaybeUninit::unin
 static mut SCRATCH: ReadScratch = ReadScratch([0; 4100]);
 
 struct Session {
-    nor: flash::Nor,
+    nor: Option<Result<flash::Nor, u8>>,
     download: Option<Download>,
     port: P4RomCdcTx,
     mask: CdcRxMask,
@@ -65,6 +65,14 @@ impl TxSink for Session {
 }
 
 impl Session {
+    fn nor(&mut self) -> Result<&flash::Nor, u8> {
+        let ticks = self.ticks;
+        self.nor
+            .get_or_insert_with(|| flash::Nor::attach(ticks))
+            .as_ref()
+            .map_err(|code| *code)
+    }
+
     fn receive(
         &mut self,
         frames: &mut DoubleBuffer<FRAME>,
@@ -107,7 +115,9 @@ impl Session {
 
 impl FlashReadIo for Session {
     fn read_aligned(&mut self, address: u32, out: &mut [u8]) -> Result<(), ReadError> {
-        self.nor.read(address, out).map_err(|_| ReadError::Flash)
+        self.nor()
+            .and_then(|nor| nor.read(address, out))
+            .map_err(|_| ReadError::Flash)
     }
     fn send_frame(&mut self, bytes: &[u8]) -> Result<(), ReadError> {
         send_frame(bytes, self)
@@ -148,7 +158,7 @@ pub extern "C" fn rust_entry() -> ! {
     Frames::init_in(unsafe { &mut *ptr::addr_of_mut!(FRAMES) });
     let mut session = Session {
         download: None,
-        nor: flash::Nor::attach(ticks).unwrap_or_else(|_| stop_transport()),
+        nor: None,
         port,
         mask,
         ticks,
@@ -188,13 +198,12 @@ pub extern "C" fn rust_entry() -> ! {
             checksum,
         } = reply.after
         {
-            if let Err(error) =
-                session
-                    .download
-                    .as_mut()
-                    .unwrap()
-                    .data(opcode, payload, checksum, &session.nor)
-            {
+            if let Err(error) = session.download.as_mut().unwrap().data(
+                opcode,
+                payload,
+                checksum,
+                session.nor.as_ref().and_then(|nor| nor.as_ref().ok()),
+            ) {
                 session.download = None;
                 pending_error = Some(error);
             }
@@ -230,29 +239,31 @@ fn reg_allowed(addr: u32, write: bool) -> bool {
 
 impl Target for Session {
     fn capacity(&self) -> u32 {
-        self.nor.capacity
+        flash::CAPACITY
     }
     fn busy(&self) -> bool {
         self.download.is_some()
     }
+    fn prepare_read(&mut self) -> Result<(), u8> {
+        self.nor().map(|_| ())
+    }
     fn attach(&mut self) -> Result<(), u8> {
-        self.nor = flash::Nor::attach(self.ticks)?;
-        Ok(())
+        self.prepare_read()
     }
     fn configure(&mut self, p: [u32; 6]) -> Result<(), u8> {
-        self.nor.configure(p)
+        self.nor()?.configure(p)
     }
     fn erase(&mut self, addr: u32, len: u32) -> Result<(), u8> {
-        self.nor.erase(addr, len)
+        self.nor()?.erase(addr, len)
     }
     fn md5(&mut self, mut addr: u32, mut remaining: u32, out: &mut [u8; 16]) -> Result<(), u8> {
-        self.nor.bounds(addr, remaining)?;
+        self.nor()?.bounds(addr, remaining)?;
         self.begin_digest();
         let scratch = unsafe { &mut *ptr::addr_of_mut!(SCRATCH) };
         while remaining > 0 {
             let len = remaining.min(4096);
             let bytes = &mut scratch.0[..len as usize];
-            self.nor.read(addr, bytes)?;
+            self.nor()?.read(addr, bytes)?;
             self.update_digest(bytes);
             addr += len;
             remaining -= len;
@@ -301,7 +312,11 @@ impl Target for Session {
     }
     fn begin(&mut self, op: u8, p: &[u8]) -> Result<(), u8> {
         self.download = None;
-        self.download = Some(Download::begin(op, p, &self.nor)?);
+        let download = Download::begin(op, p, flash::CAPACITY)?;
+        if op != 5 {
+            self.prepare_read()?;
+        }
+        self.download = Some(download);
         Ok(())
     }
     fn validate_data(&self, op: u8, p: &[u8], sum: u32) -> Result<(), u8> {

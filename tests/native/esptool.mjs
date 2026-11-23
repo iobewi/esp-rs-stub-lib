@@ -38,6 +38,7 @@ try {
   loader.FLASH_WRITE_SIZE = 2048;
   const input = readFileSync(fixture);
   const expected = createHash('md5').update(input).digest('hex');
+  await assert.rejects(loader.readFlash(4096, input.length), /Failed to read flash failed with status/);
   for (const compressed of [false,true]) {
     const data = compressed ? deflateSync(input) : input;
     const blocks = compressed
