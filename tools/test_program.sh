@@ -16,3 +16,7 @@ payload = random.Random(17).randbytes(40000) + b"USB" * 16001
 (root / "compressed").write_bytes(zlib.compress(payload))
 PY
 "$tmp/test-program" "$tmp/plain" "$tmp/compressed"
+if [[ -n "${2:-}" ]]; then
+    rustc --edition=2021 tests/native/wire.rs --extern "stub_core=$tmp/libstub_core.rlib" -L "$tmp" -l static=tinfl -o "$tmp/wire"
+    node tests/native/esptool.mjs "$2" "$tmp/wire" "$tmp/plain"
+fi

@@ -23,6 +23,7 @@ unsafe extern "C" {
         cs: u32,
         write: bool,
     );
+    fn esp_rom_spiflash_erase_chip() -> i32;
     fn esp_rom_spiflash_unlock() -> i32;
     fn esp_rom_spiflash_config_param(
         id: u32,
@@ -167,6 +168,13 @@ impl Nor {
         }
         if unsafe { esp_rom_spiflash_unlock() } != 0 {
             return Err(0xc5);
+        }
+        if addr == 0 && len == self.capacity {
+            return if unsafe { esp_rom_spiflash_erase_chip() } == 0 {
+                Ok(())
+            } else {
+                Err(0xc4)
+            };
         }
         for off in (addr..addr + len).step_by(SECTOR as usize) {
             self.enable()?;

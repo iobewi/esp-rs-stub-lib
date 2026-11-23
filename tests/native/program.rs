@@ -3,37 +3,7 @@
 #[path = "../../targets/esp32p4/src/program.rs"]
 mod program;
 
-mod flash {
-    use std::cell::RefCell;
-    pub const SECTOR: u32 = 4096;
-    pub struct Nor(pub RefCell<Vec<u8>>);
-    impl Nor {
-        pub fn bounds(&self, addr: u32, len: u32) -> Result<(), u8> {
-            if u64::from(addr) + u64::from(len) > self.0.borrow().len() as u64 {
-                Err(0xc0)
-            } else {
-                Ok(())
-            }
-        }
-        pub fn erase(&self, addr: u32, len: u32) -> Result<(), u8> {
-            assert_eq!((addr | len) % SECTOR, 0);
-            self.bounds(addr, len)?;
-            self.0.borrow_mut()[addr as usize..(addr + len) as usize].fill(0xff);
-            Ok(())
-        }
-        pub fn program(&self, addr: u32, data: &[u8]) -> Result<(), u8> {
-            self.bounds(addr, data.len() as u32)?;
-            let mut memory = self.0.borrow_mut();
-            for (dst, &src) in memory[addr as usize..].iter_mut().zip(data) {
-                if *dst & src != src {
-                    return Err(0xc4);
-                }
-                *dst = src;
-            }
-            Ok(())
-        }
-    }
-}
+mod flash;
 
 fn words(data: &[u32]) -> Vec<u8> {
     data.iter().flat_map(|word| word.to_le_bytes()).collect()
@@ -44,6 +14,29 @@ fn main() {
     let args: Vec<_> = std::env::args().collect();
     let plain = std::fs::read(&args[1]).unwrap();
     let compressed = std::fs::read(&args[2]).unwrap();
+    // Exercise the target's real destination bounds and entry validation against
+    // a private host mapping at the P4 download address.
+    unsafe extern "C" {
+        fn mmap(at: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, off: isize) -> *mut u8;
+        fn munmap(at: *mut u8, len: usize) -> i32;
+    }
+    let addr = program::RAM_START;
+    let region = unsafe { mmap(addr as *mut u8, 4096, 3, 0x100022, -1, 0) };
+    assert_eq!(region, addr as *mut u8);
+    let nor = flash::Nor(vec![0xff; 4096].into());
+    assert!(Download::begin(5, &words(&[8, 1, 8, program::RAM_END - 4]), &nor).is_err());
+    let mut ram = Download::begin(5, &words(&[8, 1, 8, addr]), &nor).unwrap();
+    let mut segment = words(&[8, 0, 0, 0]);
+    segment.extend_from_slice(b"RAM-test");
+    ram.data(7, &segment, u32::from(data_checksum(b"RAM-test")), &nor)
+        .unwrap();
+    assert_eq!(
+        unsafe { std::slice::from_raw_parts(region, 8) },
+        b"RAM-test"
+    );
+    assert!(ram.finish(6, &words(&[0, addr + 8])).is_err());
+    assert_eq!(ram.finish(6, &words(&[0, addr])).unwrap(), Some(addr));
+    assert_eq!(unsafe { munmap(region, 4096) }, 0);
     for (kind, input) in [(2, plain.as_slice()), (0x10, compressed.as_slice())] {
         let nor = flash::Nor(vec![0x55; 131072].into());
         let block = 257;

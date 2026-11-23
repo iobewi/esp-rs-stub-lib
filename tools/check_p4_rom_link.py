@@ -33,6 +33,21 @@ BRINGUP_CALLS = {
     "esp_rom_cdc_acm_irq_callback_set": 0x4FC00900,
     "esp_rom_cdc_acm_line_ctrl_get": 0x4FC00908,
 }
+# Espressif esp-stub-lib 91e85dc3, ESP32-P4 ECO5 table + ECO7 extra symbol.
+FLASHER_CALLS = {
+    "spi_flash_attach": 0x4FC001E8,
+    "spi_flash_boot_attach": 0x4FC0FE6E,
+    "esp_rom_opiflash_exec_cmd_eco7": 0x4FC10B40,
+    "esp_rom_spiflash_unlock": 0x4FC0015C,
+    "esp_rom_spiflash_config_param": 0x4FC00168,
+    "esp_rom_spiflash_read": 0x4FC00158,
+    "esp_rom_spiflash_erase_chip": 0x4FC0012C,
+    "GetSecurityInfoProc": 0x4FC000BC,
+    "MD5Init": 0x4FC005E0,
+    "MD5Update": 0x4FC005E4,
+    "MD5Final": 0x4FC005E8,
+    "tinfl_decompress": 0x4FC000F8,
+}
 ROM_DWC_HANDLER = 0x4FC00974
 BRINGUP_MMIO = {
     0x5012D04C: {"lw"},        # EFUSE_RD_MAC_SYS_2_REG
@@ -158,7 +173,7 @@ def find_handler_address(disassembly: str) -> bool:
     return False
 
 
-def check_elf(elf_path: Path, disassembly: str, bringup: bool = False) -> None:
+def check_elf(elf_path: Path, disassembly: str, bringup: bool = False, flasher: bool = False) -> None:
     with elf_path.open("rb") as binary:
         elf = ELFFile(binary)
         if elf["e_machine"] != "EM_RISCV":
@@ -177,6 +192,11 @@ def check_elf(elf_path: Path, disassembly: str, bringup: bool = False) -> None:
     if bringup:
         expected_symbols += tuple(BRINGUP_CALLS.items())
         expected_symbols += (("esp_rom_usb_dw_isr_handler", ROM_DWC_HANDLER),)
+    if flasher:
+        expected_symbols += tuple(FLASHER_CALLS.items())
+        for name, address in FLASHER_CALLS.items():
+            if not find_rom_call(disassembly, address):
+                raise AssertionError(f"Missing linked call to {name} at {address:#x}")
     for name, expected in expected_symbols:
         actual = symbols.get(name)
         if actual != expected:
@@ -209,8 +229,9 @@ def main() -> None:
     parser.add_argument("elf", type=Path)
     parser.add_argument("disassembly", type=Path)
     parser.add_argument("--bringup", action="store_true")
+    parser.add_argument("--flasher", action="store_true")
     args = parser.parse_args()
-    check_elf(args.elf, args.disassembly.read_text(), args.bringup)
+    check_elf(args.elf, args.disassembly.read_text(), args.bringup, args.flasher)
 
 
 if __name__ == "__main__":

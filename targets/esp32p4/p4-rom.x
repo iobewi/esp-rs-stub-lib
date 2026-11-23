@@ -35,3 +35,4 @@ PROVIDE(esp_rom_spiflash_unlock = 0x4fc0015c);
 PROVIDE(esp_rom_spiflash_config_param = 0x4fc00168);
 PROVIDE(tinfl_decompress = 0x4fc000f8);
 PROVIDE(GetSecurityInfoProc = 0x4fc000bc);
+PROVIDE(esp_rom_spiflash_erase_chip = 0x4fc0012c);

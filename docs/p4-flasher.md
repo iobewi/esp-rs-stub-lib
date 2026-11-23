@@ -12,7 +12,7 @@ cargo build --release --target riscv32imc-unknown-none-elf -p p4-foundation --fe
 python tools/elf2stub.py target/riscv32imc-unknown-none-elf/release/p4-flasher-stub build/p4-flasher-stub.json
 ```
 
-Create the build directory first. The foundation workflow exports the ELF,
+Create the build directory first with `mkdir -p build`. The foundation workflow exports the ELF,
 JSON and digest. Use the resulting artifact SHA for the hardware run.
 
 ## Protocol coverage
@@ -47,7 +47,11 @@ Reference sources: esp-flasher-stub at `232a1e3a`, esp-stub-lib at `91e85dc3`
 and esptool-js 0.7.0. The host package's readFlash() returns after sending its
 last cumulative ACK. It leaves the trailing digest frame for the transport.
 Include an explicit SPI_FLASH_MD5 comparison in acceptance. Host tests use
-the reference tinfl implementation and a simulated NOR.
+the reference tinfl implementation and a simulated NOR. The published esptool-js
+0.7.0 client drives the production packet dispatcher through a native pipe,
+programs an 88,003-byte fixture in raw and compressed form, reads it back
+in multiple packets, and compares both device digests to the host digest.
+The pipe carries already-decoded SLIP frames.
 
 1. Load the identified candidate via the existing RAM loader. Read an agreed
    region twice. Compare both byte streams, their host MD5 and SPI_FLASH_MD5.
