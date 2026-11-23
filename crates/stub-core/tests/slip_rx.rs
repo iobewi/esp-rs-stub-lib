@@ -238,3 +238,25 @@ fn full_sized_frame_boundary() {
     );
     assert_eq!(rx.frame(0).unwrap()[FRAME_BUFFER_SIZE - 1], 0x5a);
 }
+
+#[test]
+fn in_place_receiver_arms_both_slots_like_the_default_receiver() {
+    let mut storage = core::mem::MaybeUninit::uninit();
+    let frames = DoubleBuffer::<8>::init_in(&mut storage);
+    for byte in [0xc0, 0x11, 0xc0] {
+        frames.receive(byte);
+    }
+    let Poll::Ready { index: first, .. } = frames.poll() else {
+        panic!("first frame missing")
+    };
+    assert_eq!(frames.frame(first), Some(&[0x11][..]));
+    for byte in [0xc0, 0x22, 0xc0] {
+        frames.receive(byte);
+    }
+    frames.release_selected();
+    let Poll::Ready { index: second, .. } = frames.poll() else {
+        panic!("second frame missing")
+    };
+    assert_ne!(first, second);
+    assert_eq!(frames.frame(second), Some(&[0x22][..]));
+}

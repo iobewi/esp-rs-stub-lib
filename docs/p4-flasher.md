@@ -36,6 +36,11 @@ commands. The operator's permission to execute this firmware must encompass its
 flash programming capability. The earlier PING/PONG allowlist applies only to
 the probe.
 
+The TX queue stages 4096 encoded bytes, offers at most 64 bytes per ROM FIFO
+call, and retains every partially accepted suffix. P4_USB_TX_DIAGNOSTICS
+records cumulative FIFO calls, accepted bytes and zero accepts after each drain.
+Throughput must be measured on the board.
+
 Validated data blocks are acknowledged before programming. A processing failure
 is latched and returned to the next command. A transfer ends successfully only
 after its declared blocks and bytes have been consumed. A lost link or invalid

@@ -64,6 +64,24 @@ impl<const N: usize> DoubleBuffer<N> {
         }
     }
 
+    /// Initialize both slots directly in caller storage, avoiding a large stack
+    /// temporary and a loadable image containing two zero-filled RX buffers.
+    pub fn init_in(storage: &mut core::mem::MaybeUninit<Self>) -> &mut Self {
+        let dst = storage.as_mut_ptr();
+        // Every field is initialized before the first typed reference. Byte
+        // storage accepts any bit pattern; enum fields are written as values.
+        unsafe {
+            core::ptr::addr_of_mut!((*dst).bytes).write_bytes(0, 1);
+            core::ptr::addr_of_mut!((*dst).slots).write([SlotState::Empty; 2]);
+            core::ptr::addr_of_mut!((*dst).rx).write(0);
+            core::ptr::addr_of_mut!((*dst).selected).write(None);
+            core::ptr::addr_of_mut!((*dst).armed).write(true);
+            core::ptr::addr_of_mut!((*dst).len).write(0);
+            core::ptr::addr_of_mut!((*dst).decoder).write(SlipDecoder::new());
+            storage.assume_init_mut()
+        }
+    }
+
     /// Feed one byte from a sequential test or an exclusive RX adapter.
     ///
     /// Bytes are discarded while no slot is armed. A fresh C0 is required

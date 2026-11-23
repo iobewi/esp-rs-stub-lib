@@ -21,7 +21,9 @@ unsafe extern "C" {
 }
 
 const FRAME: usize = stub_core::rx::FRAME_BUFFER_SIZE;
-static mut FRAMES: DoubleBuffer<FRAME> = DoubleBuffer::new();
+static mut TX: TxQueue<4096> = TxQueue::new();
+type Frames = DoubleBuffer<FRAME>;
+static mut FRAMES: core::mem::MaybeUninit<Frames> = core::mem::MaybeUninit::uninit();
 static mut SCRATCH: ReadScratch = ReadScratch([0; 4100]);
 
 struct Session {
@@ -33,34 +35,32 @@ struct Session {
     pump: RxPump,
     ticks: u32,
     digest: [u32; 22],
-    tx: [u8; 64],
-    used: usize,
+    tx: &'static mut TxQueue<4096>,
 }
 
 impl TxSink for Session {
     type Error = ReadError;
     fn write_byte(&mut self, byte: u8) -> Result<(), ReadError> {
-        self.tx[self.used] = byte;
-        self.used += 1;
-        if self.used == self.tx.len() {
+        if self.tx.pending() == self.tx.capacity() {
             self.flush()?;
+        }
+        if self.tx.enqueue(core::slice::from_ref(&byte)) != 1 {
+            return Err(ReadError::Transport);
         }
         Ok(())
     }
     fn flush(&mut self) -> Result<(), ReadError> {
-        if self.used != 0
-            && !send(
-                &mut self.port,
-                &mut self.coord,
-                &mut self.mask,
-                self.ticks,
-                &self.tx[..self.used],
-            )
-        {
-            return Err(ReadError::Transport);
+        if drain_tx(
+            self.tx,
+            &mut self.port,
+            &mut self.coord,
+            &mut self.mask,
+            self.ticks,
+        ) {
+            Ok(())
+        } else {
+            Err(ReadError::Transport)
         }
-        self.used = 0;
-        Ok(())
     }
 }
 
@@ -114,7 +114,7 @@ impl FlashReadIo for Session {
     }
     fn receive_ack(&mut self) -> Result<u32, ReadError> {
         // The dispatcher releases its command frame before invoking transfer.
-        let frames = unsafe { &mut *ptr::addr_of_mut!(FRAMES) };
+        let frames = unsafe { &mut *ptr::addr_of_mut!(FRAMES).cast::<Frames>() };
         let index = self.receive(frames, true)?;
         let ack = frames
             .frame(index)
@@ -144,6 +144,7 @@ pub extern "C" fn rust_entry() -> ! {
     if !(1..=1000).contains(&ticks) {
         stop_transport()
     }
+    Frames::init_in(unsafe { &mut *ptr::addr_of_mut!(FRAMES) });
     let mut session = Session {
         download: None,
         nor: flash::Nor::attach(ticks).unwrap_or_else(|_| stop_transport()),
@@ -153,15 +154,14 @@ pub extern "C" fn rust_entry() -> ! {
         coord: RxIrqCoordinator::new(),
         pump: RxPump::new(),
         digest: [0; 22],
-        tx: [0; 64],
-        used: 0,
+        tx: unsafe { &mut *ptr::addr_of_mut!(TX) },
     };
     if session.send_frame(b"OHAI").is_err() {
         stop_transport()
     }
     let mut pending_error = None;
     loop {
-        let frames = unsafe { &mut *ptr::addr_of_mut!(FRAMES) };
+        let frames = unsafe { &mut *ptr::addr_of_mut!(FRAMES).cast::<Frames>() };
         let Ok(index) = session.receive(frames, false) else {
             stop_transport()
         };

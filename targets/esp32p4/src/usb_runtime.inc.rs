@@ -244,16 +244,15 @@ fn cycle_count() -> u32 {
     count
 }
 
-fn send(
+fn drain_tx(
+    queue: &mut TxQueue<4096>,
     port: &mut P4RomCdcTx,
     coord: &mut RxIrqCoordinator,
     mask: &mut CdcRxMask,
     ticks_per_us: u32,
-    frame: &[u8],
 ) -> bool {
-    let mut queue = TxQueue::<64>::new();
-    if queue.enqueue(frame) != frame.len() {
-        return false;
+    if queue.pending() == 0 {
+        return true;
     }
     let start = cycle_count();
     let budget = ticks_per_us * TX_TIMEOUT_US;
