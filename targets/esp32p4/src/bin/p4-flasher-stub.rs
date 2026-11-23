@@ -141,7 +141,8 @@ pub extern "C" fn rust_entry() -> ! {
     let Some((port, mask)) = attach() else { stop() };
     unsafe { asm!("csrsi mstatus, 8", options(nostack)) };
     let ticks = unsafe { esp_rom_get_cpu_ticks_per_us() };
-    if !(1..=1000).contains(&ticks) {
+    let first_cycle = cycle_count();
+    if !(1..=1000).contains(&ticks) || cycle_count() == first_cycle {
         stop_transport()
     }
     Frames::init_in(unsafe { &mut *ptr::addr_of_mut!(FRAMES) });

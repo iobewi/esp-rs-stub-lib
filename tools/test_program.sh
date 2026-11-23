@@ -20,3 +20,5 @@ if [[ -n "${2:-}" ]]; then
     rustc --edition=2021 tests/native/wire.rs --extern "stub_core=$tmp/libstub_core.rlib" -L "$tmp" -l static=tinfl -o "$tmp/wire"
     node tests/native/esptool.mjs "$2" "$tmp/wire" "$tmp/plain"
 fi
+rustc --edition=2021 tests/native/rom_flash.rs -o "$tmp/test-rom-flash"
+"$tmp/test-rom-flash"

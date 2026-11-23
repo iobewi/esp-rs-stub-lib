@@ -93,10 +93,13 @@ impl Nor {
         if jedec != [0xc8, 0x40, 0x19] {
             return Err(0xc4);
         }
-        Ok(Self {
+        let device = Self {
             capacity: 1 << 25,
             ticks,
-        })
+        };
+        let id = u32::from_be_bytes([0, jedec[0], jedec[1], jedec[2]]);
+        device.configure([id, device.capacity, 65536, SECTOR, 256, 0xffff])?;
+        Ok(device)
     }
     pub fn configure(&self, p: [u32; 6]) -> Result<(), u8> {
         if p[1] != self.capacity || p[2] != 65536 || p[3] != SECTOR || p[4] != 256 {
