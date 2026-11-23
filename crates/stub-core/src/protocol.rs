@@ -80,3 +80,83 @@ mod tests {
         );
     }
 }
+
+/// Validated READ_FLASH parameters. The wire window is advisory; esptool-js
+/// receives one packet and returns its cumulative byte count before the next.
+#[derive(Debug, Clone, Copy)]
+pub struct FlashRead {
+    offset: u32,
+    size: u32,
+    packet_size: u32,
+}
+
+impl FlashRead {
+    pub fn parse(payload: &[u8], capacity: u32) -> Result<Self, PacketError> {
+        let fields: &[u8; 16] = payload.try_into().map_err(|_| PacketError::Length)?;
+        let word = |start| {
+            let i: usize = start;
+            u32::from_le_bytes([fields[i], fields[i + 1], fields[i + 2], fields[i + 3]])
+        };
+        let (offset, size, packet_size) = (word(0), word(4), word(8));
+        if offset > capacity
+            || size > capacity - offset
+            || packet_size > 4096
+            || (size != 0 && packet_size == 0)
+        {
+            return Err(PacketError::Length);
+        }
+        Ok(Self {
+            offset,
+            size,
+            packet_size,
+        })
+    }
+
+    /// Call after sending the command success response and releasing its RX frame.
+    /// The target supplies aligned storage outside the interrupt stack.
+    pub fn transfer(
+        self,
+        io: &mut impl FlashReadIo,
+        scratch: &mut ReadScratch,
+    ) -> Result<(), ReadError> {
+        io.begin_digest();
+        let mut acknowledged = 0;
+        while acknowledged < self.size {
+            let address = self.offset + acknowledged;
+            let count = self.packet_size.min(self.size - acknowledged);
+            let skip = (address & 3) as usize;
+            let words = (skip + count as usize).div_ceil(4);
+            io.read_aligned(address & !3, &mut scratch.0[..words * 4])?;
+            let data = &scratch.0[skip..skip + count as usize];
+            io.update_digest(data);
+            io.send_frame(data)?;
+            let expected = acknowledged + count;
+            if io.receive_ack()? != expected {
+                return Err(ReadError::UnexpectedAck);
+            }
+            acknowledged = expected;
+        }
+        let digest = io.finish_digest();
+        io.send_frame(&digest)
+    }
+}
+
+#[repr(align(4))]
+pub struct ReadScratch(pub [u8; 4100]);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadError {
+    Flash,
+    Transport,
+    UnexpectedAck,
+}
+
+pub trait FlashReadIo {
+    fn read_aligned(&mut self, address: u32, output: &mut [u8]) -> Result<(), ReadError>;
+    fn send_frame(&mut self, payload: &[u8]) -> Result<(), ReadError>;
+    /// Accept exactly four little-endian bytes from one decoded SLIP frame.
+    fn receive_ack(&mut self) -> Result<u32, ReadError>;
+    fn begin_digest(&mut self);
+    fn update_digest(&mut self, bytes: &[u8]);
+    fn finish_digest(&mut self) -> [u8; 16];
+}
