@@ -24,7 +24,15 @@ test = false
 bench = false
 required-features = ["usb-bringup"]
 
+[[bin]]
+name = "p4-flasher-stub"
+path = "src/bin/p4-flasher-stub.rs"
+test = false
+bench = false
+required-features = ["flasher"]
+
 [features]
+flasher = []
 usb-bringup = []
 # Opt-in only: this ELF may call ROM before a USB session is validated.
 rom-link-smoke = []
