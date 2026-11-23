@@ -6,9 +6,7 @@ The project aims to implement device-side flash stubs in Rust while keeping
 compatibility with Espressif's existing host-side flashing workflow, including
 `esptool-js` / Web Serial.
 
-> **Development status:** early foundation. This repository does **not** yet
-> contain a functional P4 USB flasher. Do not deploy the foundation image on
-> a production device or use it as a replacement for Espressif's stub.
+> **Development status:** the opt-in ESP32-P4 flasher candidate builds as a RAM image. Its integrated flash operations await ECO7 board qualification. [Commands, build and acceptance](docs/p4-flasher.md).
 
 ## Architecture
 
@@ -35,10 +33,7 @@ portable protocol logic.
 - Software CI for host tests, RV32IMC cross-compilation, formatting, and
   ELF/JSON validation.
 
-**Not implemented yet:** a functional USB transport, command dispatcher,
-flash operations, and interrupt-safe integration of RX buffers. The portable
-`stub-core` is not linked into the P4 foundation binary yet. ROM USB ABI
-details and actual hardware behavior remain to be validated.
+The integrated flasher links the portable packet codec, USB transport and P4 target operations. The foundation binary remains available for linker checks.
 
 ## Development
 
