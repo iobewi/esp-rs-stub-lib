@@ -3,6 +3,7 @@
 //! Portable, pure definitions for a RAM-resident flasher stub.
 //! Hardware access and protocol implementation belong in later PRs.
 
+pub mod probe;
 pub mod rx;
 pub mod slip;
 pub mod tx;
